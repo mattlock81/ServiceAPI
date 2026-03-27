@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.1.0  
+**Version**: 2.1.1  
 **Author**: Matthew Sillett  
 **Organisation**: Australian Signals Directorate
 
@@ -143,6 +143,10 @@ If registered `DefaultHeaders` already provides a non-empty `Authorization` head
 3. Environment-Wide (any service in `prod`)
 4. Global Fallback
 
+Handled errors use `Debug-Error` when `SysCommon` is available. If `SysCommon` is unavailable,
+ServiceAPI falls back to basic local PowerShell error output. `Invoke-APIRequest -Silent` still
+suppresses handled-error output while rethrowing exceptions to the caller.
+
 ---
 
 ## Module Structure
@@ -162,5 +166,6 @@ ServiceAPI/
 
 | Version | Date    | Changes |
 |---------|---------|---------|
+| 2.1.1   | 28MAR26 | Restored Debug-Error based handled-error reporting with graceful fallback when SysCommon is unavailable. Added centralized Write-ServiceApiHandledError helper. Preserved Silent behavior while suppressing handled-error output. Polished fallback handled-error message formatting. |
 | 2.1.0   | 28MAR26 | Added explicit Authorization header override support in Invoke-APIRequest. Enforced token-only credential resolution when UseToken is specified. Updated Set-ServiceCredential to accept plain string or SecureString tokens and normalize Bearer-prefixed input. Updated Get-ServiceConfig to honor registered DefaultHeaders and skip credential lookup when DefaultHeaders already provides Authorization. |
 | 2.0.0   | 27JAN26 | Renamed from AtlassianAPI. Fixed GET Content-Type issue. Streamlined. |

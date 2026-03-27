@@ -3,7 +3,7 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.0.0
+# Version: 2.1.1
 # Author: Matthew Sillett
 # Organisation: Australian Signals Directorate
 # Date: 2026-01-27
@@ -11,15 +11,21 @@
 # ==============================
 # Phase 0: Dependency Import
 # ==============================
+# Detect SysCommon / Debug-Error once at import time and cache the result for later handled-error reporting.
+$script:ServiceApiHasDebugError = $false
+$serviceApiDebugErrorWarning = "SysCommon / Debug-Error was not found. ServiceAPI will fall back to basic local error handling."
+
 try {
-    if (-not (Get-Module -Name SYSCommon)) {
-        Import-Module SYSCommon -DisableNameChecking -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
-        if (-not (Get-Module -Name SYSCommon)) {
-            Write-Warning "SYSCommon module not available. Debug-Error functionality will be limited."
-        }
+    if (-not (Get-Module -Name SysCommon -ErrorAction SilentlyContinue)) {
+        Import-Module SysCommon -DisableNameChecking -Force -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
     }
 } catch {
-    Write-Warning "SYSCommon module not available. Debug-Error functionality will be limited."
+    # Continue loading without SysCommon; handled-error reporting will use local fallback.
+}
+
+$script:ServiceApiHasDebugError = $null -ne (Get-Command -Name Debug-Error -ErrorAction SilentlyContinue)
+if (-not $script:ServiceApiHasDebugError) {
+    Write-Warning $serviceApiDebugErrorWarning
 }
 
 # ==============================
@@ -98,4 +104,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
     Remove-Variable -Name ServiceCredentials, ServiceTokens, ServiceSSOTokens, ServiceRegistry, RegisteredServices -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.0.0)"
+Write-Verbose "ServiceAPI module loaded (v2.1.1)"

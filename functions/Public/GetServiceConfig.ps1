@@ -43,10 +43,11 @@ function Get-ServiceConfig {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.1.0
+        Version     : 2.1.1
         Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.1 | 28MAR26 | Documentation refresh for centralized handled-error reporting and version consistency.
         2.1.0 | 28MAR26 | Added registered DefaultHeaders precedence and skipped credential lookup when Authorization is already supplied.
         2.0.0 | 27JAN26 | Refactored from Get-AtlassianConfig to support generalised API services with service registry.
         1.2.0 | 22AUG25 | Added support for custom service with -BaseUrl. Updated validation and examples.

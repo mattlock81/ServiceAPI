@@ -19,7 +19,10 @@ function Invoke-APIRequest {
         treated as authoritative.
 
         Service/config-driven requests retain the existing 403 retry behavior for Basic authentication.
-        Explicit override requests do not attempt credential refresh.
+        Explicit override requests do not attempt credential refresh. Handled exceptions are reported
+        through Debug-Error when available. When SysCommon / Debug-Error is unavailable, ServiceAPI
+        falls back to basic local PowerShell error output. -Silent suppresses handled-error output
+        and rethrows to the caller.
 
     .PARAMETER Method
         The HTTP method (GET, POST, PUT, DELETE, PATCH). Defaults to GET if not supplied.
@@ -52,7 +55,7 @@ function Invoke-APIRequest {
         Uses token-only credential lookup and does not allow Basic fallback.
 
     .PARAMETER Silent
-        Suppresses error logging/output (e.g. Debug-Error noise) while still rethrowing exceptions to the caller.
+        Suppresses module-generated handled-error output/noise while still rethrowing exceptions to the caller.
 
         Useful when interacting with APIs that return noisy or non-critical error responses
         (such as Atlassian APIs), allowing the caller to handle failures without additional
@@ -77,10 +80,11 @@ function Invoke-APIRequest {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.1.0
+        Version     : 2.1.1
         Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.1 | 28MAR26 | Restored Debug-Error based handled-error reporting with graceful fallback and retained Silent rethrow behavior.
         2.1.0 | 28MAR26 | Added explicit Authorization header override support and token-only config-driven auth selection.
         2.0.0 | 27JAN26 | Refactored to use Get-ServiceConfig and Get-ServiceCredential. Changed -UsePT to -UseToken.
         1.2.6 | 22SEP25 | Fixed authentication: now automatically calls Set-ServiceCredential if no credential is found globally.
@@ -190,7 +194,7 @@ function Invoke-APIRequest {
         return Invoke-RestMethod @params
 
     } catch {
-        if ($Silent) { throw } # Suppresses handled-error logging/noise (for example Debug-Error output) and rethrows so the caller can handle noisy or partial API failures locally.
+        if ($Silent) { throw } # Silent suppresses Debug-Error/local fallback handled-error noise but still rethrows to the caller.
 
         # Handle 403 Forbidden with credential refresh retry
         if (-not $isExplicitAuthOverride -and $_.Exception.Response.StatusCode.value__ -eq 403) {
@@ -204,15 +208,15 @@ function Invoke-APIRequest {
                 # Always attempt to ensure a credential exists globally
                 $key = New-ServiceKey -Service $Service -Environment $Environment
                 if (-not ($global:ServiceCredentials.ContainsKey($key))) {
-                    Write-Host "No cached credential found. Prompting via Set-ServiceCredential..." -ForegroundColor Cyan
+                    Write-Verbose "No cached credential found. Prompting via Set-ServiceCredential..."
                     Set-ServiceCredential -Service $Service -Environment $Environment -Verbose
                 } else {
-                    Write-Host "Refreshing cached credential..." -ForegroundColor Cyan
+                    Write-Verbose "Refreshing cached credential..."
                     Set-ServiceCredential -Service $Service -Environment $Environment -Verbose
                 }
 
                 # Retry after refresh
-                Write-Host "Retry request after refreshing credentials..." -ForegroundColor Cyan
+                Write-Verbose "Retrying request after refreshing credentials..."
                 return Invoke-APIRequest -Service $Service `
                                          -Environment $Environment `
                                          -Method $Method `
@@ -223,20 +227,12 @@ function Invoke-APIRequest {
                                          -UseToken:$UseToken `
                                          -Verbose:$VerbosePreference
             } catch {
-                if (Get-Command -Name Debug-Error -ErrorAction SilentlyContinue) {
-                    Debug-Error -ErrorRecord $_ -Severity 'Critical'
-                } else {
-                    Write-Error "Credential refresh failed after 403. Error: $($_.Exception.Message)"
-                }
+                Write-ServiceApiHandledError -ErrorRecord $_ -Severity 'Critical' -Message 'Credential refresh failed after 403.'
                 return
             }
         }
 
-        # Fallback error output for non-403 exceptions
-        if (Get-Command -Name Debug-Error -ErrorAction SilentlyContinue) {
-            Debug-Error -ErrorRecord $_ -Severity 'Critical'
-        } else {
-            Write-Error $_
-        }
+        # Route handled errors through Debug-Error when available, otherwise use local fallback output.
+        Write-ServiceApiHandledError -ErrorRecord $_ -Severity 'Critical'
     }
 }

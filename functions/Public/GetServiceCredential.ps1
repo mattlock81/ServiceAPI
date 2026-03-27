@@ -11,7 +11,8 @@ function Get-ServiceCredential {
 
         When -UseToken is specified, the function switches to token-only resolution for the specified
         service and environment. In token mode, Basic fallback is not attempted, prompting is not
-        performed, and missing token credentials cause an error.
+        performed, and missing token credentials cause an error. Handled error reporting elsewhere
+        in the module uses Debug-Error when available and basic local PowerShell output otherwise.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, custom-api).
@@ -34,10 +35,11 @@ function Get-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.1.0
+        Version     : 2.1.1
         Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.1 | 28MAR26 | Documentation refresh for centralized handled-error reporting and fallback behavior.
         2.1.0 | 28MAR26 | Enforced token-only credential resolution with no Basic fallback when -UseToken is specified.
         2.0.0 | 27JAN26 | Refactored from Get-AtlassianCredential to support generalised API services.
         1.2.4 | 24JUN25 | Fixed premature prompt bug; clarified global fallback behaviour.
