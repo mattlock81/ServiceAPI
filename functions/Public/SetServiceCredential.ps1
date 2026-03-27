@@ -56,10 +56,11 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.1.0
+        Version     : 2.1.1
         Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.1 | 28MAR26 | Documentation refresh for module-level handled-error reporting and version consistency.
         2.1.0 | 28MAR26 | Added plain string token input support and Bearer prefix normalization before storage.
         2.0.0 | 27JAN26 | Refactored from Set-AtlassianCredential to support generalised API services.
         1.2.2 | 23JUN25 | Disallowed global PATs. Enforced service+environment requirement for PATs. Refined Basic Auth global logic.
