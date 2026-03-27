@@ -1,48 +1,53 @@
 function Get-ServiceConfig {
     <#
     .SYNOPSIS
-        Retrieves configuration settings for an API service in the specified environment.
+        Resolves BaseUrl and headers for a service/environment.
 
     .DESCRIPTION
-        Resolves the BaseUrl and authentication headers to be used with REST API requests.
-        Internally calls Get-ServiceCredential to apply the appropriate headers based on the service/environment/credential configuration.
-        Supports both predefined services (from service registry) and custom services with user-provided BaseUrl.
+        Resolves the BaseUrl and headers to be used with REST API requests.
+        BaseUrl may come from the supplied BaseUrl parameter or the registered service configuration.
+
+        Headers are built in layers:
+        1. New-StandardHeaders
+        2. registered DefaultHeaders
+        3. credential-derived headers only when Authorization is not already present
+
+        Registered DefaultHeaders are authoritative for overlapping keys. If DefaultHeaders contains
+        a non-empty Authorization header, Get-ServiceCredential is skipped. Otherwise, credential-derived
+        headers are resolved and only fill missing values.
 
     .PARAMETER Service
-        The API service name (e.g., jira, confluence, custom-api).
+        Service name to resolve.
 
     .PARAMETER Environment
-        The environment to target: qa, prod, dev. Defaults to prod.
+        Environment to resolve. Defaults to prod.
 
     .PARAMETER BaseUrl
-        Required if Service is not in the predefined registry. Specifies the base URL to use for custom service endpoints.
+        Optional direct BaseUrl override. Required if the service/environment is not registered.
 
     .PARAMETER UseToken
-        Use token-based authentication.
+        Used only if credential resolution is needed and Authorization is not already provided by DefaultHeaders.
 
     .EXAMPLE
-        Get-ServiceConfig -Service jira
-        # Returns config for jira prod
+        Get-ServiceConfig -Service jira -Environment prod
+        Returns resolved configuration for jira in prod.
 
     .EXAMPLE
-        Get-ServiceConfig -Service confluence -Environment qa
-        # Returns config for confluence qa
+        Get-ServiceConfig -Service cloudflare -Environment prod -UseToken
+        Returns resolved configuration using token credential resolution when no Authorization header is already registered.
 
     .EXAMPLE
-        Get-ServiceConfig -Service custom-api -BaseUrl 'https://api.example.com/v1'
-        # Returns config for custom API service
-
-    .EXAMPLE
-        Get-ServiceConfig -Service bitbucket -UseToken
-        # Returns config with token-based auth
+        Get-ServiceConfig -Service cloudflare -Environment prod -BaseUrl 'https://api.cloudflare.com/client/v4/'
+        Returns resolved configuration using the supplied BaseUrl override.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.0.0
-        Date        : 27-JAN-26
+        Version     : 2.1.0
+        Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.0 | 28MAR26 | Added registered DefaultHeaders precedence and skipped credential lookup when Authorization is already supplied.
         2.0.0 | 27JAN26 | Refactored from Get-AtlassianConfig to support generalised API services with service registry.
         1.2.0 | 22AUG25 | Added support for custom service with -BaseUrl. Updated validation and examples.
         1.1.5 | 23JUN25 | Added inline comments and enforced early fail for unimplemented -UseSSO flag.
@@ -59,6 +64,8 @@ function Get-ServiceConfig {
     )
 
     try {
+        $serviceConfig = $null
+
         # === Determine the BaseUrl ===
         if ($BaseUrl) {
             # User-provided BaseUrl takes precedence
@@ -66,14 +73,60 @@ function Get-ServiceConfig {
         } elseif ($global:ServiceRegistry.ContainsKey($Service) -and 
                   $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
             # Lookup from service registry
-            $BaseUrl = $global:ServiceRegistry[$Service][$Environment].BaseUrl
+            $serviceConfig = $global:ServiceRegistry[$Service][$Environment]
+            $BaseUrl = $serviceConfig.BaseUrl
             Write-Verbose "Resolved BaseUrl from registry: $BaseUrl"
         } else {
             throw "BaseUrl not defined for [$Service] in [$Environment] environment. Provide -BaseUrl or register the service first."
         }
 
-        # === Resolve appropriate headers (Token or Basic) ===
-        $Headers = Get-ServiceCredential -Service $Service -Environment $Environment -UseToken:$UseToken
+        # === Start with standard headers ===
+        $Headers = New-StandardHeaders -Service $Service
+
+        # === Merge registered default headers if present ===
+        if ($serviceConfig -and $null -ne $serviceConfig.DefaultHeaders) {
+            if ($serviceConfig.DefaultHeaders -isnot [System.Collections.IDictionary]) {
+                throw "DefaultHeaders for [$Service] in [$Environment] must be a hashtable or dictionary-compatible object."
+            }
+
+            foreach ($key in $serviceConfig.DefaultHeaders.Keys) {
+                $Headers[$key] = $serviceConfig.DefaultHeaders[$key]
+            }
+        }
+
+        # A registered Authorization header suppresses credential lookup for this config-driven request.
+        $hasAuthorizationHeader = $false
+        foreach ($key in $Headers.Keys) {
+            if ([string]::Equals([string]$key, 'Authorization', [System.StringComparison]::OrdinalIgnoreCase) -and
+                -not [string]::IsNullOrWhiteSpace([string]$Headers[$key])) {
+                $hasAuthorizationHeader = $true
+                break
+            }
+        }
+
+        # === Resolve credential-derived headers and fill any missing values ===
+        if (-not $hasAuthorizationHeader) {
+            # Credential-derived headers are applied only to keys not already defined by standard/default headers.
+            $credentialHeaders = Get-ServiceCredential -Service $Service -Environment $Environment -UseToken:$UseToken
+
+            foreach ($key in $credentialHeaders.Keys) {
+                $headerExists = $false
+
+                foreach ($existingKey in $Headers.Keys) {
+                    if ([string]::Equals([string]$existingKey, [string]$key, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $headerExists = $true
+                        break
+                    }
+                }
+
+                if (-not $headerExists) {
+                    $Headers[$key] = $credentialHeaders[$key]
+                }
+            }
+        } else {
+            # DefaultHeaders already provides auth, so credential resolution is skipped.
+            Write-Verbose "Using Authorization header from DefaultHeaders; skipping credential resolution."
+        }
 
         # === Return a hashtable with resolved API config ===
         return @{
