@@ -1,12 +1,12 @@
 function Get-ServiceCredential {
     <#
     .SYNOPSIS
-        Resolves authentication headers for a registered service and environment.
+        Resolves authentication headers for a registered service.
 
     .DESCRIPTION
         Resolves authentication headers for a registered service.
-        By default, the function resolves Basic authentication headers using the existing fallback order.
-        If no matching Basic credential is found, the function prompts and stores a service-specific
+        Basic authentication is the default behavior and uses the existing fallback order. If no
+        matching Basic credential is found, the function prompts and stores a service-specific
         credential before retrying resolution.
 
         When -UseToken is specified, the function switches to token-only resolution for the specified
@@ -54,7 +54,7 @@ function Get-ServiceCredential {
     # === Initialise standard headers using helper function ===
     $headers = New-StandardHeaders -Service $Service
 
-    # === Token resolution ===
+    # === Token resolution is exclusive and does not fall back to Basic ===
     if ($UseToken) {
         if ([string]::IsNullOrWhiteSpace($Service) -or [string]::IsNullOrWhiteSpace($Environment)) {
             throw "Token-based credential resolution requires both -Service and -Environment."
@@ -74,7 +74,7 @@ function Get-ServiceCredential {
         return $headers
     }
 
-    # === Resolve Basic Auth Credential ===
+    # === Resolve Basic Auth Credential using the existing fallback order ===
     $cred = $null
 
     # Priority 1: Exact service + environment match

@@ -110,7 +110,7 @@ Callers can bypass service registration and stored credentials by supplying:
 - `Headers` containing `Authorization`
 - `Endpoint`
 
-In this mode, no service registration is required, no credential lookup is performed, and the supplied Authorization header is honored as authoritative.
+In this mode, no service registration is required, no credential lookup is performed, and the supplied Authorization header is honored as authoritative. Standard headers are still used as a base and caller headers are layered on top.
 
 ```powershell
 $headers = New-ModifiedHeader -BaseHeaders (New-StandardHeaders) -Override @{
@@ -119,6 +119,19 @@ $headers = New-ModifiedHeader -BaseHeaders (New-StandardHeaders) -Override @{
 
 Invoke-APIRequest -BaseUrl 'https://api.cloudflare.com/client/v4/' -Headers $headers -Endpoint 'zones?name=smashnet.win'
 ```
+
+---
+
+## Config-Driven Header Precedence
+
+When requests use registered service configuration, headers are resolved in this order:
+
+1. `New-StandardHeaders`
+2. registered `DefaultHeaders`
+3. credential-derived headers only when `Authorization` is not already supplied by `DefaultHeaders`
+4. `Invoke-APIRequest -Headers` remains the final override layer
+
+If registered `DefaultHeaders` already provides a non-empty `Authorization` header, `Get-ServiceConfig` skips credential lookup and returns the merged headers as-is.
 
 ---
 
@@ -149,5 +162,5 @@ ServiceAPI/
 
 | Version | Date    | Changes |
 |---------|---------|---------|
-| 2.1.0   | 28MAR26 | Added explicit Authorization header override support in Invoke-APIRequest. Enforced token-only credential resolution when UseToken is specified. Updated Set-ServiceCredential to accept plain string or SecureString tokens and normalize Bearer-prefixed input. |
+| 2.1.0   | 28MAR26 | Added explicit Authorization header override support in Invoke-APIRequest. Enforced token-only credential resolution when UseToken is specified. Updated Set-ServiceCredential to accept plain string or SecureString tokens and normalize Bearer-prefixed input. Updated Get-ServiceConfig to honor registered DefaultHeaders and skip credential lookup when DefaultHeaders already provides Authorization. |
 | 2.0.0   | 27JAN26 | Renamed from AtlassianAPI. Fixed GET Content-Type issue. Streamlined. |

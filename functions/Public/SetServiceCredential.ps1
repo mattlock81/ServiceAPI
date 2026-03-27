@@ -1,10 +1,10 @@
 function Set-ServiceCredential {
     <#
     .SYNOPSIS
-        Stores Basic credentials or token credentials for an API service.
+        Stores Basic credentials or token credentials for a service.
 
     .DESCRIPTION
-        Stores either Basic credentials or token credentials for an API service.
+        Stores either Basic credentials or token credentials for a service.
         Basic credentials follow the existing global, service, environment, and service+environment
         storage behavior.
 
@@ -16,6 +16,7 @@ function Set-ServiceCredential {
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, custom-api), or 'global' for Basic Auth fallback only.
+        Required for token storage.
 
     .PARAMETER Credential
         A PSCredential object used for Basic authentication storage.
@@ -79,7 +80,7 @@ function Set-ServiceCredential {
     $credentialSupplied = $PSBoundParameters.ContainsKey('Credential')
     $tokenSupplied = $PSBoundParameters.ContainsKey('Token')
 
-    # === Interactive fallback for Basic Auth if neither credential nor token is supplied ===
+    # === Prompt for Basic Auth only when neither Credential nor Token was supplied ===
     if (-not $credentialSupplied -and -not $tokenSupplied) {
         Write-Verbose "No Credential or Token supplied. Prompting for Basic Auth."
         $Credential = Invoke-CredentialPrompt -Service $Service -Environment $Environment
@@ -106,6 +107,7 @@ function Set-ServiceCredential {
             throw "Token must be either a SecureString or a string."
         }
 
+        # Strip any Bearer prefix so only the raw token value is stored.
         if ($tokenValue.StartsWith('Bearer ', [System.StringComparison]::OrdinalIgnoreCase)) {
             $tokenValue = $tokenValue.Substring(7)
         }
@@ -114,6 +116,7 @@ function Set-ServiceCredential {
             throw "Token value cannot be null or empty."
         }
 
+        # Convert plain token text to SecureString before storing it in the token cache.
         $secureToken = ConvertTo-SecureString -String $tokenValue -AsPlainText -Force
         $key = New-ServiceKey -Service $Service -Environment $Environment
 

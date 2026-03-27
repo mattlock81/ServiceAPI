@@ -1,7 +1,7 @@
 function Invoke-APIRequest {
     <#
     .SYNOPSIS
-        Sends a REST API request using either registered service configuration or explicit headers.
+        Executes a REST API request using either registered service configuration or explicit header-based authentication.
 
     .DESCRIPTION
         Invoke-APIRequest supports two request modes.
@@ -14,7 +14,9 @@ function Invoke-APIRequest {
         In explicit header override mode, the function sends the request directly when -BaseUrl,
         -Endpoint, and -Headers.Authorization are supplied. In this mode, -Service is not required,
         Get-ServiceConfig is not called, Get-ServiceCredential is not called, stored credentials are
-        not required, and the supplied Authorization header is treated as authoritative.
+        not required, credential refresh is not attempted on 403, New-StandardHeaders are used as
+        a base and caller-supplied headers are overlaid, and the supplied Authorization header is
+        treated as authoritative.
 
         Service/config-driven requests retain the existing 403 retry behavior for Basic authentication.
         Explicit override requests do not attempt credential refresh.
@@ -37,7 +39,7 @@ function Invoke-APIRequest {
         Optional body payload. Automatically serialised to JSON if supplied.
 
     .PARAMETER Headers
-        Optional additional headers to include with the request.
+        Custom headers to include with the request.
         If Headers contains Authorization and BaseUrl + Endpoint are supplied, the request runs in
         explicit auth override mode and skips service/config/credential resolution.
 
@@ -50,7 +52,11 @@ function Invoke-APIRequest {
         Uses token-only credential lookup and does not allow Basic fallback.
 
     .PARAMETER Silent
-        If set, prevents Debug-Error from logging exceptions. Exceptions are rethrown to be handled by the caller.
+        Suppresses error logging/output (e.g. Debug-Error noise) while still rethrowing exceptions to the caller.
+
+        Useful when interacting with APIs that return noisy or non-critical error responses
+        (such as Atlassian APIs), allowing the caller to handle failures without additional
+        console output.
 
     .EXAMPLE
         Invoke-APIRequest -Service jira -Environment prod -Endpoint 'api/2/myself'
@@ -103,6 +109,7 @@ function Invoke-APIRequest {
         $overrideHeaders = $null
         $authorizationValue = $null
 
+        # A caller-supplied Authorization header switches the request into explicit auth override mode.
         if (-not [string]::IsNullOrWhiteSpace($BaseUrl) -and
             -not [string]::IsNullOrWhiteSpace($Endpoint) -and
             $null -ne $Headers) {
@@ -124,10 +131,12 @@ function Invoke-APIRequest {
         }
 
         if ($isExplicitAuthOverride) {
+            # Keep standard request headers, then let caller-supplied headers override them.
             $resolvedBaseUrl = $BaseUrl
             $mergedHeaders = New-StandardHeaders
             $overrideHeaders.Keys | ForEach-Object { $mergedHeaders[$_] = $overrideHeaders[$_] }
         } else {
+            # Resolve service configuration and credentials only when explicit auth override is not used.
             if ([string]::IsNullOrWhiteSpace($Service)) {
                 throw "Service is required unless you supply BaseUrl and Headers.Authorization for explicit auth override."
             }
@@ -181,7 +190,7 @@ function Invoke-APIRequest {
         return Invoke-RestMethod @params
 
     } catch {
-        if ($Silent) { throw } # let caller handle locally
+        if ($Silent) { throw } # Suppresses handled-error logging/noise (for example Debug-Error output) and rethrows so the caller can handle noisy or partial API failures locally.
 
         # Handle 403 Forbidden with credential refresh retry
         if (-not $isExplicitAuthOverride -and $_.Exception.Response.StatusCode.value__ -eq 403) {
