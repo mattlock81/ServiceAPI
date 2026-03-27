@@ -1,13 +1,17 @@
 function Get-ServiceCredential {
     <#
     .SYNOPSIS
-        Retrieves the appropriate Authorization header for an API service and environment.
+        Resolves authentication headers for a registered service and environment.
 
     .DESCRIPTION
-        Supports dynamic resolution of Basic Auth or Token authentication.
-        If no -Service/-Environment is specified, returns global Basic Auth.
-        Falls back to service-global or environment-wide credentials if specific combination is missing.
-        If no stored credential is found, prompts the user and stores the result under the 'global' scope.
+        Resolves authentication headers for a registered service.
+        By default, the function resolves Basic authentication headers using the existing fallback order.
+        If no matching Basic credential is found, the function prompts and stores a service-specific
+        credential before retrying resolution.
+
+        When -UseToken is specified, the function switches to token-only resolution for the specified
+        service and environment. In token mode, Basic fallback is not attempted, prompting is not
+        performed, and missing token credentials cause an error.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, custom-api).
@@ -16,27 +20,25 @@ function Get-ServiceCredential {
         (Optional) The environment to target: qa, prod, dev. Defaults to prod.
 
     .PARAMETER UseToken
-        Use token-based authentication instead of Basic Auth.
+        Forces token-only credential lookup for the specified service and environment.
+        Requires a stored token credential and does not allow Basic fallback.
 
     .EXAMPLE
-        Get-ServiceCredential
-        # Returns global Basic Auth headers
+        Get-ServiceCredential -Service jira -Environment prod
+        Resolves Basic authentication headers for jira in prod.
 
     .EXAMPLE
-        Get-ServiceCredential -Service jira
-        # Returns headers for jira with fallback resolution
-
-    .EXAMPLE
-        Get-ServiceCredential -Service custom-api -Environment prod -UseToken
-        # Returns Bearer token headers for custom-api prod
+        Get-ServiceCredential -Service cloudflare -Environment prod -UseToken
+        Resolves Bearer token headers for cloudflare in prod without Basic fallback.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.0.0
-        Date        : 27-JAN-26
+        Version     : 2.1.0
+        Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.0 | 28MAR26 | Enforced token-only credential resolution with no Basic fallback when -UseToken is specified.
         2.0.0 | 27JAN26 | Refactored from Get-AtlassianCredential to support generalised API services.
         1.2.4 | 24JUN25 | Fixed premature prompt bug; clarified global fallback behaviour.
         1.2.3 | 04JUN25 | Removed deprecated global variable check; unified fallback re-prompt via Set-ServiceCredential.
@@ -54,11 +56,16 @@ function Get-ServiceCredential {
 
     # === Token resolution ===
     if ($UseToken) {
-        if ($Service -and $Environment -and $global:ServiceTokens.ContainsKey("$Service-$Environment")) {
-            $secure = $global:ServiceTokens["$Service-$Environment"]
-        } else {
-            throw "Token not found for requested service/environment. No global fallback is allowed for tokens."
+        if ([string]::IsNullOrWhiteSpace($Service) -or [string]::IsNullOrWhiteSpace($Environment)) {
+            throw "Token-based credential resolution requires both -Service and -Environment."
         }
+
+        $key = New-ServiceKey -Service $Service -Environment $Environment
+        if (-not $global:ServiceTokens.ContainsKey($key)) {
+            throw "Token credential not found for [$key]. Token mode does not support Basic fallback. Run Set-ServiceCredential -Service $Service -Environment $Environment -Token <token>."
+        }
+
+        $secure = $global:ServiceTokens[$key]
 
         # Convert secure string to plaintext token using helper
         $token = ConvertSecureStringToPlainText -SecureString $secure

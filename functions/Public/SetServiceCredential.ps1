@@ -1,54 +1,65 @@
 function Set-ServiceCredential {
     <#
     .SYNOPSIS
-        Stores a Basic Authentication credential or token for an API service, environment, or global fallback.
+        Stores Basic credentials or token credentials for an API service.
 
     .DESCRIPTION
-        Supports token-based and Basic Auth. Basic credentials default to global unless -Service/-Environment are specified.
-        Allows per-service or per-environment storage without requiring both parameters.
-        Tokens require both -Service and -Environment to be set. Global tokens are not supported.
+        Stores either Basic credentials or token credentials for an API service.
+        Basic credentials follow the existing global, service, environment, and service+environment
+        storage behavior.
+
+        Token credentials require both -Service and -Environment. The -Token parameter accepts either
+        a plain string or a SecureString. Plain string tokens are converted internally to SecureString
+        before storage. If the supplied token begins with 'Bearer ', that prefix is removed before
+        storage so only the raw token value is persisted. Bearer header formatting is applied later
+        when request headers are resolved.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, custom-api), or 'global' for Basic Auth fallback only.
 
     .PARAMETER Credential
-        A PSCredential object for Basic Authentication.
+        A PSCredential object used for Basic authentication storage.
 
     .PARAMETER Token
-        A SecureString representing a Personal Access Token or API key.
+        A token value to store for token-based authentication.
+        Accepts either a plain string or a SecureString. A leading 'Bearer ' prefix is stripped
+        automatically before storage.
 
     .PARAMETER Environment
         The environment: qa, prod, dev, or global (for Basic Auth only).
+        Required for token storage.
 
     .PARAMETER Global
         Explicitly store credential as global fallback (Basic Auth only).
 
     .PARAMETER Force
-        Overwrite existing values without confirmation.
+        Overwrite existing values without confirmation when an existing credential or token is present.
 
     .EXAMPLE
-        Set-ServiceCredential -Credential (Get-Credential)
-        # Stores as global fallback
+        Set-ServiceCredential -Service jira -Environment prod
+        Prompts interactively and stores Basic credentials for jira in prod.
 
     .EXAMPLE
-        Set-ServiceCredential -Service jira -Credential (Get-Credential)
-        # Stores for jira service (all environments)
+        Set-ServiceCredential -Service cloudflare -Environment prod -Token 'cfat_xxxxx'
+        Stores a raw token string for cloudflare in prod.
 
     .EXAMPLE
-        Set-ServiceCredential -Service custom-api -Environment prod -Token (Read-Host -AsSecureString)
-        # Stores token for custom-api in prod environment
+        Set-ServiceCredential -Service cloudflare -Environment prod -Token 'Bearer cfat_xxxxx'
+        Strips the Bearer prefix and stores only the raw token value.
 
     .EXAMPLE
-        Set-ServiceCredential -Environment qa -Credential (Get-Credential)
-        # Stores for all registered services in qa environment
+        $secure = ConvertTo-SecureString 'cfat_xxxxx' -AsPlainText -Force
+        Set-ServiceCredential -Service cloudflare -Environment prod -Token $secure
+        Stores a SecureString token for cloudflare in prod.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.0.0
-        Date        : 27-JAN-26
+        Version     : 2.1.0
+        Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.0 | 28MAR26 | Added plain string token input support and Bearer prefix normalization before storage.
         2.0.0 | 27JAN26 | Refactored from Set-AtlassianCredential to support generalised API services.
         1.2.2 | 23JUN25 | Disallowed global PATs. Enforced service+environment requirement for PATs. Refined Basic Auth global logic.
         1.2.1 | 04JUN25 | Refined global resolution logic to ensure accurate key assignment.
@@ -59,30 +70,51 @@ function Set-ServiceCredential {
     param (
         [string]$Service,
         [pscredential]$Credential,
-        [SecureString]$Token,
+        [object]$Token,
         [string]$Environment,
         [switch]$Global,
         [switch]$Force
     )
 
+    $credentialSupplied = $PSBoundParameters.ContainsKey('Credential')
+    $tokenSupplied = $PSBoundParameters.ContainsKey('Token')
+
     # === Interactive fallback for Basic Auth if neither credential nor token is supplied ===
-    if (-not $Credential -and -not $Token) {
+    if (-not $credentialSupplied -and -not $tokenSupplied) {
         Write-Verbose "No Credential or Token supplied. Prompting for Basic Auth."
         $Credential = Invoke-CredentialPrompt -Service $Service -Environment $Environment
     }
 
     # === Disallow use of both Basic and Token in a single call ===
-    if ($Credential -and $Token) {
+    if ($credentialSupplied -and $tokenSupplied) {
         throw "You cannot supply both -Credential and -Token. Choose one."
     }
 
     # === Handle Token-based authentication ===
-    if ($Token) {
+    if ($tokenSupplied) {
         # Tokens must be scoped to a specific service and environment
         if (-not $Service -or -not $Environment -or $Service -eq 'global' -or $Environment -eq 'global') {
             throw "Tokens must be stored per service and environment. Global tokens are not supported."
         }
 
+        $tokenValue = $null
+        if ($Token -is [SecureString]) {
+            $tokenValue = ConvertSecureStringToPlainText -SecureString $Token
+        } elseif ($Token -is [string]) {
+            $tokenValue = $Token
+        } else {
+            throw "Token must be either a SecureString or a string."
+        }
+
+        if ($tokenValue.StartsWith('Bearer ', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $tokenValue = $tokenValue.Substring(7)
+        }
+
+        if ([string]::IsNullOrWhiteSpace($tokenValue)) {
+            throw "Token value cannot be null or empty."
+        }
+
+        $secureToken = ConvertTo-SecureString -String $tokenValue -AsPlainText -Force
         $key = New-ServiceKey -Service $Service -Environment $Environment
 
         # Confirm overwrite unless -Force is specified
@@ -92,7 +124,7 @@ function Set-ServiceCredential {
         }
 
         # Store the token
-        $global:ServiceTokens[$key] = $Token
+        $global:ServiceTokens[$key] = $secureToken
         Write-Verbose "Stored token for [$key]."
         return
     }
