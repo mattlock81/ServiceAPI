@@ -1,19 +1,31 @@
 function Invoke-APIRequest {
     <#
     .SYNOPSIS
-        Sends a REST API request to a configured service and environment.
+        Sends a REST API request using either registered service configuration or explicit headers.
 
     .DESCRIPTION
-        Issues an HTTP request to the specified API service using configured authentication headers
-        and environment-specific BaseUrl. Automatically resolves the service endpoint using Get-ServiceConfig.
-        Falls back to the global Basic Auth credential if no specific match is found.
-        Supports automatic credential refresh on 403 Forbidden responses.
+        Invoke-APIRequest supports two request modes.
+
+        In service/config-driven mode, the function resolves BaseUrl and authentication headers from
+        registered service configuration and stored credentials. When -UseToken is specified, token-only
+        credential resolution is used. When -UseToken is not specified, the normal Basic authentication
+        path is used.
+
+        In explicit header override mode, the function sends the request directly when -BaseUrl,
+        -Endpoint, and -Headers.Authorization are supplied. In this mode, -Service is not required,
+        Get-ServiceConfig is not called, Get-ServiceCredential is not called, stored credentials are
+        not required, and the supplied Authorization header is treated as authoritative.
+
+        Service/config-driven requests retain the existing 403 retry behavior for Basic authentication.
+        Explicit override requests do not attempt credential refresh.
 
     .PARAMETER Method
-        The HTTP method (GET, POST, PUT, DELETE). Defaults to GET if not supplied.
+        The HTTP method (GET, POST, PUT, DELETE, PATCH). Defaults to GET if not supplied.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, custom-api).
+        Optional only when -BaseUrl and -Headers.Authorization are supplied for explicit header override.
+        Otherwise required for config-driven requests.
 
     .PARAMETER Endpoint
         The relative path to append to the service BaseUrl.
@@ -25,36 +37,45 @@ function Invoke-APIRequest {
         Optional body payload. Automatically serialised to JSON if supplied.
 
     .PARAMETER Headers
-        Optional additional headers to merge with default authentication headers.
+        Optional additional headers to include with the request.
+        If Headers contains Authorization and BaseUrl + Endpoint are supplied, the request runs in
+        explicit auth override mode and skips service/config/credential resolution.
 
     .PARAMETER BaseUrl
-        Optional custom BaseUrl for services not in the registry.
+        Optional custom BaseUrl for requests that do not use a registered service configuration.
+        May be supplied directly for explicit header-based requests.
 
     .PARAMETER UseToken
-        Use token-based authentication instead of Basic Auth.
+        Applies to config-driven credential resolution only.
+        Uses token-only credential lookup and does not allow Basic fallback.
 
     .PARAMETER Silent
         If set, prevents Debug-Error from logging exceptions. Exceptions are rethrown to be handled by the caller.
 
     .EXAMPLE
-        Invoke-APIRequest -Service jira -Endpoint "issue/PROJECT-123"
-        # GET request to jira prod
+        Invoke-APIRequest -Service jira -Environment prod -Endpoint 'api/2/myself'
+        Sends a service-based request using the normal Basic authentication path.
 
     .EXAMPLE
-        Invoke-APIRequest -Service confluence -Endpoint "rest/api/content" -Method POST -Body @{title="New Page"}
-        # POST request with body
+        Invoke-APIRequest -Service cloudflare -Environment prod -Endpoint 'zones?name=smashnet.win' -UseToken
+        Sends a service-based request using token-only credential resolution.
 
     .EXAMPLE
-        Invoke-APIRequest -Service custom-api -BaseUrl "https://api.example.com" -Endpoint "v1/users"
-        # Request to custom service
+        $headers = New-ModifiedHeader -BaseHeaders (New-StandardHeaders) -Override @{
+            Authorization = "Bearer $token"
+        }
+
+        Invoke-APIRequest -BaseUrl 'https://api.cloudflare.com/client/v4/' -Headers $headers -Endpoint 'zones?name=smashnet.win'
+        Sends a stateless request using the supplied Authorization header without credential lookup.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.0.0
-        Date        : 27-JAN-26
+        Version     : 2.1.0
+        Date        : 28-MAR-26
 
         CHANGE LOG
+        2.1.0 | 28MAR26 | Added explicit Authorization header override support and token-only config-driven auth selection.
         2.0.0 | 27JAN26 | Refactored to use Get-ServiceConfig and Get-ServiceCredential. Changed -UsePT to -UseToken.
         1.2.6 | 22SEP25 | Fixed authentication: now automatically calls Set-ServiceCredential if no credential is found globally.
         1.2.5 | 22SEP25 | Changed 403 retry logic: retry only if cached credential exists. Prevented unwanted prompts.
@@ -66,32 +87,78 @@ function Invoke-APIRequest {
         [ValidateSet("GET","POST","PUT","DELETE","PATCH")]
         [string]$Method = 'GET',
 
-        [Parameter(Mandatory)][string]$Service,
+        [string]$Service,
         [Parameter(Mandatory)][string]$Endpoint,
 
         [string]$Environment = 'prod',
         [object]$Body,
-        [hashtable]$Headers,
+        [object]$Headers,
         [string]$BaseUrl,
         [switch]$UseToken,
         [switch]$Silent
     )
 
     try {
-        # Resolve config object: BaseUrl and authentication headers
-        $configParams = @{
-            Service     = $Service
-            Environment = $Environment
-            UseToken    = $UseToken
+        $isExplicitAuthOverride = $false
+        $overrideHeaders = $null
+        $authorizationValue = $null
+
+        if (-not [string]::IsNullOrWhiteSpace($BaseUrl) -and
+            -not [string]::IsNullOrWhiteSpace($Endpoint) -and
+            $null -ne $Headers) {
+            if ($Headers -is [System.Collections.IDictionary]) {
+                $overrideHeaders = @{}
+
+                foreach ($key in $Headers.Keys) {
+                    $overrideHeaders[$key] = $Headers[$key]
+
+                    if ([string]::Equals([string]$key, 'Authorization', [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $authorizationValue = $Headers[$key]
+                    }
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace([string]$authorizationValue)) {
+                    $isExplicitAuthOverride = $true
+                }
+            }
         }
-        if ($BaseUrl) { $configParams.BaseUrl = $BaseUrl }
 
-        $config = Get-ServiceConfig @configParams
+        if ($isExplicitAuthOverride) {
+            $resolvedBaseUrl = $BaseUrl
+            $mergedHeaders = New-StandardHeaders
+            $overrideHeaders.Keys | ForEach-Object { $mergedHeaders[$_] = $overrideHeaders[$_] }
+        } else {
+            if ([string]::IsNullOrWhiteSpace($Service)) {
+                throw "Service is required unless you supply BaseUrl and Headers.Authorization for explicit auth override."
+            }
 
-        # Merge resolved headers with any custom ones passed in
-        $mergedHeaders = @{}
-        $config.Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $config.Headers[$_] }
-        if ($Headers) { $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] } }
+            # Resolve config object: BaseUrl and authentication headers
+            $configParams = @{
+                Service     = $Service
+                Environment = $Environment
+                UseToken    = $UseToken
+            }
+            if ($BaseUrl) { $configParams.BaseUrl = $BaseUrl }
+
+            $config = Get-ServiceConfig @configParams
+            if (-not $config) {
+                throw "Failed to resolve service configuration for [$Service] in [$Environment]."
+            }
+
+            $resolvedBaseUrl = $config.BaseUrl
+
+            # Merge resolved headers with any custom ones passed in
+            $mergedHeaders = @{}
+            $config.Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $config.Headers[$_] }
+
+            if ($Headers) {
+                if ($Headers -isnot [System.Collections.IDictionary]) {
+                    throw "Headers must be a hashtable or dictionary-compatible object."
+                }
+
+                $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] }
+            }
+        }
 
         # Remove Content-Type header for GET requests without a body (OPNsense compatibility)
         if ($Method -eq 'GET' -and -not $Body) {
@@ -99,10 +166,12 @@ function Invoke-APIRequest {
         }
 
         # Convert body to JSON if supplied
-        if ($Body) { $json = $Body | ConvertTo-Json -Depth 10 -Compress }
+        if ($Body) {
+            $json = $Body | ConvertTo-Json -Depth 10 -Compress
+        }
 
         # Construct final REST URI
-        $uri = "$($config.BaseUrl.TrimEnd('/'))/$($Endpoint.TrimStart('/'))"
+        $uri = "$($resolvedBaseUrl.TrimEnd('/'))/$($Endpoint.TrimStart('/'))"
 
         # Build Invoke-RestMethod parameters
         $params = @{ Method = $Method; Uri = $uri; Headers = $mergedHeaders }
@@ -115,7 +184,7 @@ function Invoke-APIRequest {
         if ($Silent) { throw } # let caller handle locally
 
         # Handle 403 Forbidden with credential refresh retry
-        if ($_.Exception.Response.StatusCode.value__ -eq 403) {
+        if (-not $isExplicitAuthOverride -and $_.Exception.Response.StatusCode.value__ -eq 403) {
             Write-Warning "Received 403 Forbidden. Checking cached credentials..."
 
             if ($UseToken) {

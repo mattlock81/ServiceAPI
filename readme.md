@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.0.0  
+**Version**: 2.1.0  
 **Author**: Matthew Sillett  
 **Organisation**: Australian Signals Directorate
 
@@ -86,12 +86,38 @@ Invoke-APIRequest -Service github -Endpoint 'users/octocat'
 
 ### Token Authentication
 ```powershell
-# Set token
+# Set token from SecureString
 $token = Read-Host "Enter API Token" -AsSecureString
-Set-ServiceCredential -Service jira -Token $token
+Set-ServiceCredential -Service jira -Environment prod -Token $token
 
-# Use token
-Invoke-APIRequest -Service jira -Endpoint 'api/2/project' -UseToken
+# Set token from plain string
+Set-ServiceCredential -Service cloudflare -Environment prod -Token 'cfat_xxxxx'
+
+# Set token from a Bearer-prefixed string
+Set-ServiceCredential -Service cloudflare -Environment prod -Token 'Bearer cfat_xxxxx'
+
+# Use token-only credential resolution
+Invoke-APIRequest -Service cloudflare -Environment prod -Endpoint 'zones?name=smashnet.win' -UseToken
+```
+
+---
+
+## Explicit Header Authentication
+
+Callers can bypass service registration and stored credentials by supplying:
+
+- `BaseUrl`
+- `Headers` containing `Authorization`
+- `Endpoint`
+
+In this mode, no service registration is required, no credential lookup is performed, and the supplied Authorization header is honored as authoritative.
+
+```powershell
+$headers = New-ModifiedHeader -BaseHeaders (New-StandardHeaders) -Override @{
+    Authorization = "Bearer $token"
+}
+
+Invoke-APIRequest -BaseUrl 'https://api.cloudflare.com/client/v4/' -Headers $headers -Endpoint 'zones?name=smashnet.win'
 ```
 
 ---
@@ -123,4 +149,5 @@ ServiceAPI/
 
 | Version | Date    | Changes |
 |---------|---------|---------|
+| 2.1.0   | 28MAR26 | Added explicit Authorization header override support in Invoke-APIRequest. Enforced token-only credential resolution when UseToken is specified. Updated Set-ServiceCredential to accept plain string or SecureString tokens and normalize Bearer-prefixed input. |
 | 2.0.0   | 27JAN26 | Renamed from AtlassianAPI. Fixed GET Content-Type issue. Streamlined. |
