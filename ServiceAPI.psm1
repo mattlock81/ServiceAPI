@@ -61,6 +61,19 @@ if (Test-Path -Path $script:PublicFunctionsPath -PathType Container) {
     }
 }
 
+# Export only public functions after all module functions have been dot-sourced.
+$publicFunctions = if (Test-Path -Path $script:PublicFunctionsPath -PathType Container) {
+    Get-ChildItem -Path $script:PublicFunctionsPath -Filter "*.ps1" -File | ForEach-Object {
+        $content = Get-Content -LiteralPath $_.FullName -Raw
+        if ($content -match 'function\s+([A-Za-z0-9\-_]+)\s*\{') {
+            $matches[1]
+        }
+    }
+} else {
+    @()
+}
+Export-ModuleMember -Function $publicFunctions
+
 # ==============================
 # Phase 4: Global Variables
 # ==============================
