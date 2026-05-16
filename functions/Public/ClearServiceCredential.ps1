@@ -1,42 +1,61 @@
 function Clear-ServiceCredential {
     <#
     .SYNOPSIS
-        Clears stored Basic Auth or Token credentials for an API service/environment/global pair.
+        Clears stored Basic Auth, Token, or SSO credentials for an API service/environment pair.
 
     .DESCRIPTION
         Supports targeted clearing of credentials by service and/or environment.
         Global credentials can be cleared with the -Global switch.
-        Supports credential type filtering (Basic, Token, All).
-        Global tokens are not supported and cannot be cleared.
+        Supports credential type filtering via -AuthType: Basic, Token, SSO, or All.
+
+        Basic Auth credentials are stored in $global:ServiceCredentials.
+        Token credentials are stored in $global:ServiceTokens.
+        SSO credentials are stored in $global:ServiceSSOTokens.
+
+        Global tokens and global SSO tokens are not supported and cannot be cleared via -Global.
 
     .PARAMETER Service
-        The API service (e.g., jira, confluence, custom-api).
+        The API service (e.g., jira, confluence, googleapi).
 
     .PARAMETER Environment
         Target environment (qa, prod, dev).
 
     .PARAMETER AuthType
-        Credential type to clear: Basic, Token, All.
+        Credential type to clear: Basic, Token, SSO, or All. Defaults to All.
 
     .PARAMETER Global
-        Clears the global fallback credential (Basic only).
+        Clears the global fallback credential (Basic Auth only).
 
     .PARAMETER Force
         Skips confirmation prompt.
 
     .EXAMPLE
         Clear-ServiceCredential -Service jira -Environment qa -AuthType All
+        Clears all credential types for jira in qa.
+
+    .EXAMPLE
+        Clear-ServiceCredential -Service googleapi -Environment prod -AuthType SSO
+        Clears the SSO token for googleapi in prod.
 
     .EXAMPLE
         Clear-ServiceCredential -Global -AuthType Basic
+        Clears the global Basic Auth fallback credential.
+
+    .EXAMPLE
+        Clear-ServiceCredential -Service cloudflare -Environment prod -AuthType Token
+        Clears the static Bearer token for cloudflare in prod.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.0.0
-        Date        : 27-JAN-26
+        Version     : 2.2.0
+        Date        : 16-MAY-26
 
         CHANGE LOG
+        2.2.0 | 16MAY26 | Added SSO credential clearing support. Extended -AuthType ValidateSet to
+                          include 'SSO'. Added SSO key removal from $global:ServiceSSOTokens in the
+                          targeted clearing loop. Updated global block to warn that SSO tokens cannot
+                          be global.
         2.0.0 | 27JAN26 | Refactored from Clear-AtlassianCredential to support generalised API services.
         1.2.3 | 23JUN25 | Removed global PAT support; added inline comments and improved verbose feedback.
         1.2.1 | 03JUN25 | Enforced key-based removal from unified credential stores.
@@ -47,73 +66,77 @@ function Clear-ServiceCredential {
         [string]$Service,
         [string]$Environment,
 
-        [ValidateSet('Basic','Token','All')]
+        [ValidateSet('Basic', 'Token', 'SSO', 'All')]
         [string]$AuthType = 'All',
 
         [switch]$Global,
         [switch]$Force
     )
 
-    # Initialise list of matching credentials to clear
-    $targets = @()
+    $targets = [System.Collections.Generic.List[hashtable]]::new()
 
-    # === Global credential clearing logic ===
+    # === Global credential clearing — Basic Auth only ===
     if ($Global) {
-        # Only Basic Auth supports global storage
-        if ($AuthType -in @('All','Basic')) {
+        if ($AuthType -in @('All', 'Basic')) {
             $key = New-ServiceKey -Global
             if ($global:ServiceCredentials.ContainsKey($key)) {
-                $targets += @{ Type = 'Basic'; Key = $key }
+                $targets.Add(@{ Type = 'Basic'; Key = $key })
             }
         }
 
-        # Tokens cannot be global – warn if user tries to clear one
-        if ($AuthType -in @('All','Token')) {
+        # Tokens and SSO tokens cannot be stored globally
+        if ($AuthType -in @('All', 'Token')) {
             Write-Warning "Global tokens are not supported and cannot be cleared."
+        }
+        if ($AuthType -in @('All', 'SSO')) {
+            Write-Warning "Global SSO tokens are not supported and cannot be cleared."
         }
     }
 
     # === Targeted service/environment-based clearing ===
     if ($Service -or $Environment) {
-        $services = if ($Service) { @($Service) } else { $global:RegisteredServices }
-        $environments = if ($Environment) { @($Environment) } else { @('qa','prod','dev') }
+        $services     = if ($Service)     { @($Service) }     else { $global:RegisteredServices }
+        $environments = if ($Environment) { @($Environment) } else { @('qa', 'prod', 'dev') }
 
         foreach ($svc in $services) {
             foreach ($env in $environments) {
                 $key = New-ServiceKey -Service $svc -Environment $env
 
-                if ($AuthType -in @('All','Basic') -and $global:ServiceCredentials.ContainsKey($key)) {
-                    $targets += @{ Type = 'Basic'; Key = $key }
+                if ($AuthType -in @('All', 'Basic') -and $global:ServiceCredentials.ContainsKey($key)) {
+                    $targets.Add(@{ Type = 'Basic'; Key = $key })
                 }
 
-                if ($AuthType -in @('All','Token') -and $global:ServiceTokens.ContainsKey($key)) {
-                    $targets += @{ Type = 'Token'; Key = $key }
+                if ($AuthType -in @('All', 'Token') -and $global:ServiceTokens.ContainsKey($key)) {
+                    $targets.Add(@{ Type = 'Token'; Key = $key })
+                }
+
+                if ($AuthType -in @('All', 'SSO') -and $global:ServiceSSOTokens.ContainsKey($key)) {
+                    $targets.Add(@{ Type = 'SSO'; Key = $key })
                 }
             }
         }
     }
 
-    # === Exit early if nothing matched ===
-    if (-not $targets) {
+    # Exit early if nothing matched
+    if ($targets.Count -eq 0) {
         Write-Warning "No matching credentials found."
         return
     }
 
-    # === Loop through and remove each matching credential ===
+    # Remove each matched credential with optional confirmation
     foreach ($target in $targets) {
         $type = $target.Type
         $key  = $target.Key
 
-        # Confirm removal unless -Force is specified
         if (-not $Force) {
             $confirm = Read-Host "Confirm removal of $type credential [$key]? (Y/N)"
             if ($confirm -ne 'Y') { continue }
         }
 
-        # Remove from the appropriate global store
         switch ($type) {
             'Basic' { $null = $global:ServiceCredentials.Remove($key) }
             'Token' { $null = $global:ServiceTokens.Remove($key) }
+            'SSO'   { $null = $global:ServiceSSOTokens.Remove($key) }
         }
 
         Write-Verbose "Removed $type credential for [$key]."
