@@ -55,10 +55,11 @@ function Get-ServiceConfig {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.2.0
+        Version     : 2.3.0
         Date        : 16-MAY-26
 
         CHANGE LOG
+        2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO credential resolution pass-through to
                           Get-ServiceCredential. Removed early-fail stub for -UseSSO. Both -UseToken
                           and -UseSSO accept optional inline values consistent with Get-ServiceCredential.
@@ -73,6 +74,18 @@ function Get-ServiceConfig {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if ($global:RegisteredServices) {
+                $global:RegisteredServices |
+                    Where-Object { $_ -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_, $_, 'ParameterValue', $_
+                        )
+                    }
+            }
+        })]
         [string]$Service,
 
         [string]$Environment = 'prod',

@@ -48,10 +48,11 @@ function Clear-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.2.0
+        Version     : 2.3.0
         Date        : 16-MAY-26
 
         CHANGE LOG
+        2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added SSO credential clearing support. Extended -AuthType ValidateSet to
                           include 'SSO'. Added SSO key removal from $global:ServiceSSOTokens in the
                           targeted clearing loop. Updated global block to warn that SSO tokens cannot
@@ -63,6 +64,18 @@ function Clear-ServiceCredential {
 
     [CmdletBinding()]
     param (
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if ($global:RegisteredServices) {
+                $global:RegisteredServices |
+                    Where-Object { $_ -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_, $_, 'ParameterValue', $_
+                        )
+                    }
+            }
+        })]
         [string]$Service,
         [string]$Environment,
 

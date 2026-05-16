@@ -3,17 +3,17 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.1.1
+# Version: 2.3.0
 # Author: Matthew Sillett
 # Organisation: Australian Signals Directorate
-# Date: 2026-01-27
+# Date: 2026-05-16
 
 # ==============================
 # Phase 0: Dependency Import
 # ==============================
-# Detect SysCommon / Debug-Error once at import time and cache the result for later handled-error reporting.
-$script:ServiceApiHasDebugError = $false
-$serviceApiDebugErrorWarning = "SysCommon / Debug-Error was not found. ServiceAPI will fall back to basic local error handling."
+# Detect SysCommon / Debug-Error once at import time and cache the result.
+$script:ServiceApiHasDebugError  = $false
+$serviceApiDebugErrorWarning     = "SysCommon / Debug-Error was not found. ServiceAPI will fall back to basic local error handling."
 
 try {
     if (-not (Get-Module -Name SysCommon -ErrorAction SilentlyContinue)) {
@@ -31,10 +31,10 @@ if (-not $script:ServiceApiHasDebugError) {
 # ==============================
 # Phase 1: Define Module Paths
 # ==============================
-$script:ModuleRoot = $PSScriptRoot
-$script:FunctionsPath = Join-Path -Path $script:ModuleRoot -ChildPath "Functions"
-$script:PrivateFunctionsPath = Join-Path -Path $script:FunctionsPath -ChildPath "Private"
-$script:PublicFunctionsPath = Join-Path -Path $script:FunctionsPath -ChildPath "Public"
+$script:ModuleRoot          = $PSScriptRoot
+$script:FunctionsPath       = Join-Path -Path $script:ModuleRoot -ChildPath 'Functions'
+$script:PrivateFunctionsPath = Join-Path -Path $script:FunctionsPath -ChildPath 'Private'
+$script:PublicFunctionsPath  = Join-Path -Path $script:FunctionsPath -ChildPath 'Public'
 
 if (-not (Test-Path -Path $script:FunctionsPath -PathType Container)) {
     Write-Error "Functions directory not found: $script:FunctionsPath"
@@ -45,9 +45,9 @@ if (-not (Test-Path -Path $script:FunctionsPath -PathType Container)) {
 # Phase 2: Load Private Functions
 # ==============================
 if (Test-Path -Path $script:PrivateFunctionsPath -PathType Container) {
-    Get-ChildItem -Path $script:PrivateFunctionsPath -Filter "*.ps1" -File | ForEach-Object {
+    Get-ChildItem -Path $script:PrivateFunctionsPath -Filter '*.ps1' -File | ForEach-Object {
         . $_.FullName
-        Write-Verbose "Loaded: $($_.BaseName)"
+        Write-Verbose "Loaded private: $($_.BaseName)"
     }
 }
 
@@ -55,15 +55,15 @@ if (Test-Path -Path $script:PrivateFunctionsPath -PathType Container) {
 # Phase 3: Load Public Functions
 # ==============================
 if (Test-Path -Path $script:PublicFunctionsPath -PathType Container) {
-    Get-ChildItem -Path $script:PublicFunctionsPath -Filter "*.ps1" -File | ForEach-Object {
+    Get-ChildItem -Path $script:PublicFunctionsPath -Filter '*.ps1' -File | ForEach-Object {
         . $_.FullName
-        Write-Verbose "Loaded: $($_.BaseName)"
+        Write-Verbose "Loaded public: $($_.BaseName)"
     }
 }
 
 # Export only public functions after all module functions have been dot-sourced.
 $publicFunctions = if (Test-Path -Path $script:PublicFunctionsPath -PathType Container) {
-    Get-ChildItem -Path $script:PublicFunctionsPath -Filter "*.ps1" -File | ForEach-Object {
+    Get-ChildItem -Path $script:PublicFunctionsPath -Filter '*.ps1' -File | ForEach-Object {
         $content = Get-Content -LiteralPath $_.FullName -Raw
         if ($content -match 'function\s+([A-Za-z0-9\-_]+)\s*\{') {
             $matches[1]
@@ -75,46 +75,56 @@ $publicFunctions = if (Test-Path -Path $script:PublicFunctionsPath -PathType Con
 Export-ModuleMember -Function $publicFunctions
 
 # ==============================
-# Phase 4: Global Variables
+# Phase 4: Initialise Global State
 # ==============================
-$global:ServiceCredentials = @{}
-$global:ServiceTokens = @{}
-$global:ServiceSSOTokens = @{}
+# Credential and token stores — always start empty for security.
+# Services are populated in Phase 5 from services.json, not hardcoded here.
+$global:ServiceCredentials  = @{}
+$global:ServiceTokens       = @{}
+$global:ServiceSSOTokens    = @{}
+$global:ServiceRegistry     = @{}
+$global:RegisteredServices  = @()
 
-# Service registry with predefined services
-$global:ServiceRegistry = @{
-    jira = @{
-        qa = @{ BaseUrl = 'https://jira.qa.atlassian.therealworld.info/rest' }
-        prod = @{ BaseUrl = 'https://jira.atlassian.therealworld.info/rest' }
-    }
-    confluence = @{
-        qa = @{ BaseUrl = 'https://confluence.qa.atlassian.therealworld.info' }
-        prod = @{ BaseUrl = 'https://confluence.atlassian.therealworld.info' }
-    }
-    bitbucket = @{
-        qa = @{ BaseUrl = 'https://bitbucket.qa.atlassian.therealworld.info' }
-        prod = @{ BaseUrl = 'https://bitbucket.atlassian.therealworld.info' }
-    }
-    crowd = @{
-        qa = @{ BaseUrl = 'https://crowd.qa.atlassian.therealworld.info' }
-        prod = @{ BaseUrl = 'https://crowd.atlassian.therealworld.info' }
-    }
-    assets = @{
-        qa = @{ BaseUrl = 'https://jira.qa.atlassian.therealworld.info' }
-        prod = @{ BaseUrl = 'https://jira.atlassian.therealworld.info' }
-    }
-    opnsense = @{
-        prod = @{ BaseUrl = 'https://firewall.smashnet.win/api' }
+# ==============================
+# Phase 5: Load Service Registry from Config
+# ==============================
+# Ensures services.json exists (creates and seeds defaults on first load),
+# then reads all entries and registers them into the global service registry.
+# This replaces the previously hardcoded $global:ServiceRegistry hashtable.
+
+Initialize-ServiceConfig
+
+$persistedServices = Read-ServiceConfig
+
+foreach ($serviceName in $persistedServices.Keys) {
+    foreach ($env in $persistedServices[$serviceName].Keys) {
+        $entry = $persistedServices[$serviceName][$env]
+
+        $regParams = @{
+            ServiceName = $serviceName
+            BaseUrl     = $entry.BaseUrl
+            Environment = $env
+            Force       = $true
+        }
+
+        if ($entry.ContainsKey('SSOProvider') -and -not [string]::IsNullOrWhiteSpace($entry.SSOProvider)) {
+            $regParams['SSOProvider'] = $entry.SSOProvider
+        }
+
+        Register-CustomService @regParams
+        Write-Verbose "Loaded service [$serviceName-$env] from services.json."
     }
 }
 
-$global:RegisteredServices = @('jira', 'confluence', 'bitbucket', 'crowd', 'assets', 'opnsense')
+Write-Verbose "ServiceAPI: Loaded $($global:RegisteredServices.Count) service(s) from registry."
 
 # ==============================
-# Phase 5: Cleanup on Exit
+# Phase 6: Cleanup on Exit
 # ==============================
 Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
-    Remove-Variable -Name ServiceCredentials, ServiceTokens, ServiceSSOTokens, ServiceRegistry, RegisteredServices -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name ServiceCredentials, ServiceTokens, ServiceSSOTokens, `
+                         ServiceRegistry, RegisteredServices `
+                    -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.1.1)"
+Write-Verbose "ServiceAPI module loaded (v2.3.0)"

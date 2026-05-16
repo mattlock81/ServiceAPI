@@ -13,10 +13,19 @@ function Register-CustomService {
         for automatic token acquisition and refresh without requiring the caller to specify
         the provider on every request.
 
+        When -Persistent is specified, the registration is written to config\services.json in
+        the module directory. Persistent registrations are loaded automatically on next module
+        import and reflected immediately in tab completion for -Service parameters across all
+        module functions.
+
+        When -Persistent is not specified, the registration is session-only and lost on module
+        reload.
+
         Supported SSO providers: GCloud, AzureCLI.
 
     .PARAMETER ServiceName
         The name to identify the service (e.g., custom-api, github, googleapi).
+        Supports tab completion from currently registered services.
 
     .PARAMETER BaseUrl
         The base URL for the API endpoint.
@@ -33,40 +42,59 @@ function Register-CustomService {
         token acquisition and refresh without requiring the provider to be named on each call.
         Accepted values: GCloud, AzureCLI.
 
+    .PARAMETER Persistent
+        When specified, writes the registration to config\services.json so it is restored
+        on next module import. When omitted, the registration is session-only.
+
     .PARAMETER Force
         Overwrite existing service registration without confirmation.
 
     .EXAMPLE
         Register-CustomService -ServiceName github -BaseUrl 'https://api.github.com'
-        Registers GitHub API for prod environment with no SSO provider.
+        Registers GitHub API for prod (session-only).
 
     .EXAMPLE
-        Register-CustomService -ServiceName googleapi -BaseUrl 'https://gmail.googleapis.com' -SSOProvider GCloud
-        Registers the Google API for prod environment with GCloud as the default SSO provider.
+        Register-CustomService -ServiceName googleapi -BaseUrl 'https://gmail.googleapis.com' -SSOProvider GCloud -Persistent
+        Registers the Google API for prod with GCloud SSO provider and persists to services.json.
 
     .EXAMPLE
-        Register-CustomService -ServiceName azuredevops -BaseUrl 'https://dev.azure.com' -Environment prod -SSOProvider AzureCLI
-        Registers Azure DevOps for prod environment with AzureCLI as the default SSO provider.
+        Register-CustomService -ServiceName azuredevops -BaseUrl 'https://dev.azure.com' -SSOProvider AzureCLI -Persistent
+        Registers Azure DevOps for prod with AzureCLI SSO provider and persists to services.json.
 
     .EXAMPLE
         Register-CustomService -ServiceName internal-api -BaseUrl 'https://api.internal.com/v2' -Environment dev
-        Registers an internal API for dev environment with no SSO provider.
+        Registers an internal API for dev environment (session-only, no SSO provider).
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.2.0
+        Version     : 2.3.0
         Date        : 16-MAY-26
 
         CHANGE LOG
-        2.2.0 | 16MAY26 | Added -SSOProvider parameter to associate a default SSO provider with a
-                          service registration, enabling automatic token resolution via -UseSSO.
-        1.0.0 | 27JAN26 | Initial version to support custom service registration in service registry.
+        2.3.0 | 16MAY26 | Added -Persistent switch to write registrations to config\services.json.
+                          Added [ArgumentCompleter] on -ServiceName for tab completion from live
+                          registry. Persistent registrations are loaded on next module import.
+        2.2.0 | 16MAY26 | Added -SSOProvider parameter to associate a default SSO provider with
+                          a service registration.
+        1.0.0 | 27JAN26 | Initial version.
     #>
 
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if ($global:RegisteredServices) {
+                $global:RegisteredServices |
+                    Where-Object { $_ -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_, $_, 'ParameterValue', $_
+                        )
+                    }
+            }
+        })]
         [string]$ServiceName,
 
         [Parameter(Mandatory)]
@@ -82,10 +110,10 @@ function Register-CustomService {
         [ValidateSet('GCloud', 'AzureCLI')]
         [string]$SSOProvider,
 
+        [switch]$Persistent,
         [switch]$Force
     )
 
-    # Validate BaseUrl format
     if ($BaseUrl -notmatch '^https?://') {
         throw "BaseUrl must start with http:// or https://"
     }
@@ -99,28 +127,38 @@ function Register-CustomService {
             }
         }
     } else {
-        # Initialise new service entry
         $global:ServiceRegistry[$ServiceName] = @{}
     }
 
-    # Build the service environment registration entry
+    # Build the in-memory registry entry
     $entry = @{
         BaseUrl        = $BaseUrl.TrimEnd('/')
         DefaultHeaders = $DefaultHeaders
     }
 
-    # Store the SSO provider if supplied — used by Get-ServiceCredential for automatic token dispatch
     if ($SSOProvider) {
-        $entry.SSOProvider = $SSOProvider
-        Write-Verbose "SSO provider [$SSOProvider] registered for [$ServiceName] in [$Environment]."
+        $entry['SSOProvider'] = $SSOProvider
+        Write-Verbose "SSO provider [$SSOProvider] registered for [$ServiceName-$Environment]."
     }
 
     $global:ServiceRegistry[$ServiceName][$Environment] = $entry
 
-    # Add to registered services list if not already present
     if ($ServiceName -notin $global:RegisteredServices) {
         $global:RegisteredServices += $ServiceName
     }
 
-    Write-Verbose "Registered service [$ServiceName] for [$Environment] environment with BaseUrl: $($entry.BaseUrl)"
+    Write-Verbose "Registered service [$ServiceName] for [$Environment] with BaseUrl: $($entry.BaseUrl)"
+
+    # Write to services.json when -Persistent is specified
+    if ($Persistent) {
+        $writeParams = @{
+            ServiceName = $ServiceName
+            Environment = $Environment
+            BaseUrl     = $entry.BaseUrl
+        }
+        if ($SSOProvider) { $writeParams['SSOProvider'] = $SSOProvider }
+
+        Write-ServiceConfig @writeParams
+        Write-Verbose "Persisted [$ServiceName-$Environment] to services.json."
+    }
 }

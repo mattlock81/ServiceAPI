@@ -1,0 +1,4 @@
+# ServiceAPI — excluded files
+# services.json contains environment-specific service URLs and SSO provider associations.
+# It is auto-created on first module load and must not be committed to version control.
+config/services.json
