@@ -73,10 +73,11 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.2.0
+        Version     : 2.3.0
         Date        : 16-MAY-26
 
         CHANGE LOG
+        2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO-based token storage. SSO tokens are
                           obtained via provider dispatch, stored in $global:ServiceSSOTokens with
                           expiry metadata. -UseToken changed from [switch] to [string] to support
@@ -92,6 +93,18 @@ function Set-ServiceCredential {
 
     [CmdletBinding()]
     param (
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if ($global:RegisteredServices) {
+                $global:RegisteredServices |
+                    Where-Object { $_ -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_, $_, 'ParameterValue', $_
+                        )
+                    }
+            }
+        })]
         [string]$Service,
         [pscredential]$Credential,
 

@@ -15,24 +15,26 @@ function Invoke-APIRequest {
         - -UseSSO: Short-lived OAuth Bearer token from $global:ServiceSSOTokens with automatic lazy
           refresh via the registered SSO provider. Accepts an optional inline provider name.
 
+        When an unregistered service name is supplied, the function prompts to register it inline.
+        The caller is asked for a BaseUrl and whether to persist the registration to services.json
+        (permanent) or keep it for the current session only. The auth mode inferred from the current
+        call determines what is stored: Basic Auth by default, or the SSO provider if -UseSSO was
+        specified with a provider value.
+
         In explicit header override mode, the function sends the request directly when -BaseUrl,
-        -Endpoint, and -Headers.Authorization are supplied. In this mode -Service is not required,
-        Get-ServiceConfig and Get-ServiceCredential are not called, stored credentials are not used,
-        credential refresh is not attempted on 403, New-StandardHeaders are used as a base and
-        caller-supplied headers are overlaid, and the supplied Authorization header is authoritative.
-        Explicit override mode is not triggered when -UseToken or -UseSSO is specified.
+        -Endpoint, and -Headers.Authorization are supplied without -UseToken or -UseSSO. In this
+        mode service/config/credential resolution is bypassed entirely.
 
         Service/config-driven Basic Auth requests retain 403 retry with credential refresh.
-        Token and SSO requests do not retry on 403 — the caller is responsible for re-authentication.
+        Token and SSO requests do not retry on 403.
         -Silent suppresses all handled-error output while still rethrowing to the caller.
 
     .PARAMETER Method
         The HTTP method (GET, POST, PUT, DELETE, PATCH). Defaults to GET.
 
     .PARAMETER Service
-        The API service name (e.g., jira, confluence, googleapi).
-        Optional only when -BaseUrl and -Headers.Authorization are supplied for explicit override.
-        Otherwise required for config-driven requests.
+        The API service name. Supports tab completion from the live service registry.
+        If the supplied name is not registered, the function prompts to register it inline.
 
     .PARAMETER Endpoint
         The relative path to append to the service BaseUrl.
@@ -44,17 +46,17 @@ function Invoke-APIRequest {
         Optional body payload. Automatically serialised to JSON if supplied.
 
     .PARAMETER Headers
-        Custom headers to include with the request. If Headers contains Authorization and BaseUrl
-        and Endpoint are supplied (and neither -UseToken nor -UseSSO is specified), the request
-        runs in explicit auth override mode and skips service/config/credential resolution.
+        Custom headers to merge with resolved service headers. If Headers contains Authorization
+        and BaseUrl and Endpoint are supplied without -UseToken or -UseSSO, the request runs in
+        explicit auth override mode and skips service/config/credential resolution.
 
     .PARAMETER BaseUrl
-        Optional custom BaseUrl. May be supplied for explicit header-based override requests or
-        to override the registered BaseUrl for a config-driven request.
+        Optional custom BaseUrl override. May be supplied for explicit header override requests
+        or to override the registered BaseUrl for a config-driven request.
 
     .PARAMETER UseToken
-        Switches to static token credential resolution. Accepts an optional inline token value as
-        a plain string. If absent, prompts and stores. No Basic fallback.
+        Switches to static token credential resolution. Accepts an optional inline token value.
+        If absent, prompts and stores. No Basic fallback.
 
     .PARAMETER UseSSO
         Switches to SSO credential resolution with automatic token refresh. Accepts an optional
@@ -85,8 +87,8 @@ function Invoke-APIRequest {
         SSO request specifying the GCloud provider explicitly.
 
     .EXAMPLE
-        Invoke-APIRequest -Service googleapi -Endpoint 'gmail/v1/users/me/profile' -UseSSO -Environment qa
-        SSO request targeting the googleapi-qa SSO credential store.
+        Invoke-APIRequest -Service newapi -Endpoint 'resource'
+        Service not registered — prompts for BaseUrl and session/permanent choice before proceeding.
 
     .EXAMPLE
         $headers = @{ Authorization = "Bearer $token" }
@@ -96,16 +98,18 @@ function Invoke-APIRequest {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.2.0
+        Version     : 2.3.0
         Date        : 16-MAY-26
 
         CHANGE LOG
+        2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for live tab completion from registry.
+                          Added [ArgumentCompleter] on -UseSSO for provider name completion.
+                          Added inline unregistered service registration prompt with session/permanent
+                          choice. Auth mode (Basic, Token, SSO) inferred from call parameters for
+                          inline registration — SSOProvider stored when -UseSSO is specified.
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO credential resolution pass-through.
-                          Changed -UseToken from [switch] to [string] to support optional inline
-                          token value. Explicit auth override mode now guarded against -UseToken
-                          and -UseSSO to prevent silent credential bypass. 403 retry block extended
-                          to exclude SSO requests alongside existing token exclusion. Recursive retry
-                          call updated for -UseToken string pass-through.
+                          Changed -UseToken from [switch] to [string]. Explicit auth override mode
+                          guarded against -UseToken and -UseSSO. 403 retry extended to exclude SSO.
         2.1.1 | 28MAR26 | Restored Debug-Error based handled-error reporting with graceful fallback.
         2.1.0 | 28MAR26 | Added explicit Authorization header override support and token-only auth.
         2.0.0 | 27JAN26 | Refactored to use Get-ServiceConfig and Get-ServiceCredential.
@@ -119,6 +123,20 @@ function Invoke-APIRequest {
         [ValidateSet('GET', 'POST', 'PUT', 'DELETE', 'PATCH')]
         [string]$Method = 'GET',
 
+        # Tab completion reads live $global:RegisteredServices at press time.
+        # Unregistered values are allowed — handled by inline registration prompt below.
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if ($global:RegisteredServices) {
+                $global:RegisteredServices |
+                    Where-Object { $_ -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_, $_, 'ParameterValue', $_
+                        )
+                    }
+            }
+        })]
         [string]$Service,
 
         [Parameter(Mandatory)]
@@ -134,6 +152,30 @@ function Invoke-APIRequest {
         [object]$UseToken,
 
         # -UseSSO accepts an optional inline provider name. Presence activates SSO mode.
+        # Tab completion offers known providers, with the service default surfaced first.
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            $providers = @('GCloud', 'AzureCLI')
+
+            # Surface registered default provider for the current -Service value first
+            $svc = $fakeBound['Service']
+            $env = if ($fakeBound['Environment']) { $fakeBound['Environment'] } else { 'prod' }
+            if ($svc -and $global:ServiceRegistry -and
+                $global:ServiceRegistry.ContainsKey($svc) -and
+                $global:ServiceRegistry[$svc].ContainsKey($env) -and
+                $global:ServiceRegistry[$svc][$env].SSOProvider) {
+                $default  = $global:ServiceRegistry[$svc][$env].SSOProvider
+                $providers = @($default) + ($providers | Where-Object { $_ -ne $default })
+            }
+
+            $providers |
+                Where-Object { $_ -like "$word*" } |
+                ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new(
+                        $_, $_, 'ParameterValue', $_
+                    )
+                }
+        })]
         [AllowNull()][AllowEmptyString()]
         [object]$UseSSO,
 
@@ -148,8 +190,49 @@ function Invoke-APIRequest {
         $overrideHeaders        = $null
         $authorizationValue     = $null
 
+        # === Inline service registration — fires when service is not in the registry ===
+        # Only applies to config-driven mode (i.e. -Service is provided and not empty).
+        if (-not [string]::IsNullOrWhiteSpace($Service) -and
+            -not $global:ServiceRegistry.ContainsKey($Service)) {
+
+            Write-Warning "Service [$Service] is not registered."
+            $register = Read-Host "Would you like to register it now? (Y/N)"
+
+            if ($register -ne 'Y') {
+                throw "Service [$Service] is not registered and registration was declined."
+            }
+
+            # Prompt for BaseUrl
+            $newBaseUrl = Read-Host "BaseUrl for [$Service]"
+            if ([string]::IsNullOrWhiteSpace($newBaseUrl)) {
+                throw "BaseUrl cannot be empty. Service [$Service] was not registered."
+            }
+
+            # Prompt for session or permanent storage
+            $persistence = Read-Host "Register as permanent or session only? (P/S)"
+
+            # Infer SSOProvider from the current call if -UseSSO was supplied with a provider value
+            $inferredProvider = $null
+            if ($useSSOMode -and -not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
+                $inferredProvider = [string]$UseSSO
+            }
+
+            $regParams = @{
+                ServiceName = $Service
+                BaseUrl     = $newBaseUrl
+                Environment = $Environment
+                Force       = $true
+            }
+            if ($inferredProvider) { $regParams['SSOProvider'] = $inferredProvider }
+            if ($persistence -eq 'P') { $regParams['Persistent'] = $true }
+
+            Register-CustomService @regParams
+
+            Write-Verbose "Service [$Service] registered for [$Environment]$(if ($persistence -eq 'P') { ' permanently' } else { ' for this session' })."
+        }
+
         # === Explicit auth override detection ===
-        # Only fires when neither -UseToken nor -UseSSO is specified. This prevents a caller-supplied
+        # Only fires when neither -UseToken nor -UseSSO is specified — prevents a caller-supplied
         # Authorization header from silently bypassing SSO or token credential resolution.
         if (-not $useTokenMode -and -not $useSSOMode -and
             -not [string]::IsNullOrWhiteSpace($BaseUrl) -and
@@ -191,7 +274,7 @@ function Invoke-APIRequest {
                 Environment = $Environment
             }
 
-            if ($BaseUrl)       { $configParams['BaseUrl']   = $BaseUrl }
+            if ($BaseUrl) { $configParams['BaseUrl'] = $BaseUrl }
 
             # Pass auth mode parameters through to Get-ServiceConfig
             if ($useSSOMode) {
@@ -246,7 +329,7 @@ function Invoke-APIRequest {
         if ($Silent) { throw }
 
         # === 403 retry — Basic Auth only ===
-        # Token and SSO requests do not retry on 403. The caller is responsible for re-authentication.
+        # Token and SSO requests do not retry on 403.
         if (-not $isExplicitAuthOverride -and $_.Exception.Response.StatusCode.value__ -eq 403) {
             Write-Warning "Received 403 Forbidden. Checking cached credentials..."
 
