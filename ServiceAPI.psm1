@@ -29,16 +29,25 @@ if (-not $script:ServiceApiHasDebugError) {
 }
 
 # ==============================
-# Phase 0.5: Detect SecretManagement
+# Phase 0.5: Detect and Import SecretManagement
 # ==============================
-# Detect Microsoft.PowerShell.SecretManagement once at import time.
-# When available, vault-based credential resolution is activated automatically.
-# All vault logic is bypassed silently when the module is not present.
-$script:ServiceApiHasSecretManagement = $null -ne (Get-Command -Name Get-Secret -ErrorAction SilentlyContinue)
-if ($script:ServiceApiHasSecretManagement) {
-    Write-Verbose "ServiceAPI: SecretManagement detected — vault credential resolution enabled."
+# Mirrors the SysCommon detection pattern. Uses ListAvailable to confirm the module
+# is installed before attempting import. Flag is only set on confirmed successful import.
+# All vault logic is bypassed silently when the module is not available.
+$script:ServiceApiHasSecretManagement = $false
+
+if (Get-Module -Name Microsoft.PowerShell.SecretManagement -ListAvailable) {
+    try {
+        if (-not (Get-Module -Name Microsoft.PowerShell.SecretManagement)) {
+            Import-Module Microsoft.PowerShell.SecretManagement -DisableNameChecking -Force -ErrorAction Stop | Out-Null
+        }
+        $script:ServiceApiHasSecretManagement = $true
+        Write-Verbose "ServiceAPI: SecretManagement detected and imported — vault credential resolution enabled."
+    } catch {
+        Write-Verbose "ServiceAPI: SecretManagement available but failed to import — vault credential resolution disabled."
+    }
 } else {
-    Write-Verbose "ServiceAPI: SecretManagement not detected — vault credential resolution disabled."
+    Write-Verbose "ServiceAPI: SecretManagement not available — vault credential resolution disabled."
 }
 
 # ==============================
