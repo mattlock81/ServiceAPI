@@ -1,4 +1,4 @@
-function Get-ServiceConfig {
+﻿function Get-ServiceConfig {
     <#
     .SYNOPSIS
         Resolves BaseUrl and headers for a service/environment.
@@ -65,7 +65,7 @@ function Get-ServiceConfig {
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO credential resolution pass-through to
                           Get-ServiceCredential. Removed early-fail stub for -UseSSO. Both -UseToken
                           and -UseSSO accept optional inline values consistent with Get-ServiceCredential.
-        2.1.1 | 28MAR26 | Documentation refresh for centralized handled-error reporting and version consistency.
+        2.1.1 | 28MAR26 | Documentation refresh for centralised handled-error reporting and version consistency.
         2.1.0 | 28MAR26 | Added registered DefaultHeaders precedence and skipped credential lookup
                           when Authorization is already supplied.
         2.0.0 | 27JAN26 | Refactored from Get-AtlassianConfig to support generalised API services.

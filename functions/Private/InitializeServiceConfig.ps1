@@ -1,4 +1,4 @@
-function Initialize-ServiceConfig {
+﻿function Initialise-ServiceConfig {
     <#
     .SYNOPSIS
         Ensures services.json exists and is seeded with default services on first load.
@@ -15,10 +15,12 @@ function Initialize-ServiceConfig {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 1.0.0
-        Date        : 16-MAY-26
+        Version     : 1.0.1
+        Date        : 17-MAY-26
 
         CHANGE LOG
+        1.0.1 | 17MAY26 | Renamed from Initialise-ServiceConfig to Initialise-ServiceConfig
+                          to conform to Australian/British English spelling conventions.
         1.0.0 | 16MAY26 | Initial version. Provides first-load auto-creation of services.json
                           seeded with predefined services, replacing hardcoded registry in psm1.
     #>

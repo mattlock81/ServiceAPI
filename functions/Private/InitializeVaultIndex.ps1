@@ -1,4 +1,4 @@
-function Initialize-VaultIndex {
+﻿function Initialise-VaultIndex {
     <#
     .SYNOPSIS
         Ensures the vault credential index file exists on first load.
@@ -14,10 +14,12 @@ function Initialize-VaultIndex {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 1.0.0
+        Version     : 1.0.1
         Date        : 17-MAY-26
 
         CHANGE LOG
+        1.0.1 | 17MAY26 | Renamed from Initialise-VaultIndex to Initialise-VaultIndex
+                          to conform to Australian/British English spelling conventions.
         1.0.0 | 17MAY26 | Initial version. Provides first-load auto-creation of
                           credential-index.json for SecretManagement vault integration.
     #>

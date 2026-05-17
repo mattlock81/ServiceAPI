@@ -1,4 +1,4 @@
-function Get-ServiceCredential {
+﻿function Get-ServiceCredential {
     <#
     .SYNOPSIS
         Resolves authentication headers for a registered service.
@@ -89,7 +89,7 @@ function Get-ServiceCredential {
                           refresh via provider dispatch. -UseToken changed from [switch] to [string]
                           to support optional inline token value with interactive prompt fallback.
                           SSO resolution added as priority 0 before token and Basic Auth paths.
-        2.1.1 | 28MAR26 | Documentation refresh for centralised handled-error reporting and fallback behavior.
+        2.1.1 | 28MAR26 | Documentation refresh for centralised handled-error reporting and fallback behaviour.
         2.1.0 | 28MAR26 | Enforced token-only credential resolution with no Basic fallback when -UseToken is specified.
         2.0.0 | 27JAN26 | Refactored from Get-AtlassianCredential to support generalised API services.
         1.2.4 | 24JUN25 | Fixed premature prompt bug; clarified global fallback behaviour.

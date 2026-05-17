@@ -1,4 +1,4 @@
-function Read-ServiceConfig {
+﻿function Read-ServiceConfig {
     <#
     .SYNOPSIS
         Reads the persisted service configuration from services.json.
@@ -9,7 +9,7 @@ function Read-ServiceConfig {
         Register-CustomService when merging a new persistent entry.
 
         If the config directory or file does not exist, returns an empty hashtable. File creation
-        on first load is handled by Initialize-ServiceConfig, not this function.
+        on first load is handled by Initialise-ServiceConfig, not this function.
 
     .NOTES
         Author      : Matthew Sillett

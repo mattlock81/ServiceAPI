@@ -114,7 +114,7 @@ $global:ServiceApiVaultIndex = @{}
 # Only runs when SecretManagement is detected. Creates credential-index.json if absent
 # and loads the index into $global:ServiceApiVaultIndex for use during credential resolution.
 if ($script:ServiceApiHasSecretManagement) {
-    Initialize-VaultIndex
+    Initialise-VaultIndex
     $global:ServiceApiVaultIndex = Read-VaultIndex
     Write-Verbose "ServiceAPI: Vault index loaded ($($global:ServiceApiVaultIndex.Count) service key(s))."
 }
@@ -126,7 +126,7 @@ if ($script:ServiceApiHasSecretManagement) {
 # then reads all entries and registers them into the global service registry.
 # This replaces the previously hardcoded $global:ServiceRegistry hashtable.
 
-Initialize-ServiceConfig
+Initialise-ServiceConfig
 
 $persistedServices = Read-ServiceConfig
 

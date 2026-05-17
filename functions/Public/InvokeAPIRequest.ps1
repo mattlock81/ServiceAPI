@@ -1,4 +1,4 @@
-function Invoke-APIRequest {
+﻿function Invoke-APIRequest {
     <#
     .SYNOPSIS
         Executes a REST API request using either registered service configuration or explicit header-based authentication.
@@ -43,7 +43,7 @@ function Invoke-APIRequest {
         The environment to target: qa, prod, dev. Defaults to prod.
 
     .PARAMETER Body
-        Optional body payload. Automatically serialised to JSON if supplied.
+        Optional body payload. Automatically Serialised to JSON if supplied.
 
     .PARAMETER Headers
         Custom headers to merge with resolved service headers. If Headers contains Authorization
