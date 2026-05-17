@@ -1,6 +1,6 @@
-@{
+﻿@{
     RootModule        = 'ServiceAPI.psm1'
-    ModuleVersion     = '2.4.1'
+    ModuleVersion     = '2.4.3'
     GUID              = 'a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'
     Author            = 'Matthew Sillett'
     CompanyName       = 'Australian Signals Directorate'
@@ -17,6 +17,13 @@
         PSData = @{
             Tags = @('API', 'REST', 'Atlassian', 'Jira', 'Confluence', 'OPNsense', 'Google', 'OAuth', 'SSO', 'SecretManagement', 'Vault', 'DevOps', 'Automation')
             ReleaseNotes = @'
+2.4.3 | 17MAY26 | British/Australian English spelling applied throughout. Initialize renamed
+                  to Initialise in private function names (Initialise-ServiceConfig,
+                  Initialise-VaultIndex) and all call sites. American spellings corrected
+                  in all inline comments, help text, and changelog entries across all files.
+                  Authorization retained in HTTP header references as a proper noun.
+2.4.2 | 17MAY26 | Bearer vs Basic Auth determined by key presence in stored vault credential.
+                  Test call in Resolve-VaultCredential also uses correct header type.
 2.4.1 | 17MAY26 | Fixed -UseToken and -UseSSO parameter types from [object] to [string] with
                   appropriate defaults for PowerShell 7 compatibility. -UseToken defaults to
                   'default' (vault label). -UseSSO defaults to empty string. SecretManagement
@@ -32,7 +39,7 @@
                   distinguished via Test-IsTokenValue heuristic (vault index match, known prefixes,
                   length, character set). -SessionOnly switch added to Invoke-APIRequest and
                   Get-ServiceCredential to bypass vault for session-only credentials. Four new private
-                  functions: Initialize-VaultIndex, Read-VaultIndex, Write-VaultIndex,
+                  functions: Initialise-VaultIndex, Read-VaultIndex, Write-VaultIndex,
                   Resolve-VaultCredential, Test-IsTokenValue. credential-index.json auto-created in
                   config\ on first vault-enabled load. $global:ServiceApiVaultIndex initialised in
                   Phase 4 and populated in Phase 4.5. Vault index added to Phase 6 cleanup.

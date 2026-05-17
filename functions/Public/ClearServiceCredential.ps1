@@ -1,4 +1,4 @@
-function Clear-ServiceCredential {
+﻿function Clear-ServiceCredential {
     <#
     .SYNOPSIS
         Clears stored Basic Auth, Token, or SSO credentials for an API service/environment pair.

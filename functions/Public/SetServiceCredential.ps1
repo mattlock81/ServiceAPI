@@ -1,4 +1,4 @@
-function Set-ServiceCredential {
+﻿function Set-ServiceCredential {
     <#
     .SYNOPSIS
         Stores Basic, Token, or SSO credentials for a service.
