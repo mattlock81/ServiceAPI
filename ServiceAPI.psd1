@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'ServiceAPI.psm1'
-    ModuleVersion     = '2.4.3'
+    ModuleVersion     = '2.4.4'
     GUID              = 'a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'
     Author            = 'Matthew Sillett'
     CompanyName       = 'Australian Signals Directorate'
@@ -17,6 +17,11 @@
         PSData = @{
             Tags = @('API', 'REST', 'Atlassian', 'Jira', 'Confluence', 'OPNsense', 'Google', 'OAuth', 'SSO', 'SecretManagement', 'Vault', 'DevOps', 'Automation')
             ReleaseNotes = @'
+2.4.4 | 17MAY26 | Extended SecretManagement vault integration to Basic Auth. Resolve-VaultCredential
+                  extended with -AuthType parameter (Token/Basic). Basic Auth path stores and
+                  retrieves PSCredential objects natively. Get-ServiceCredential Priority 2 now
+                  attempts vault resolution before the four-tier in-memory fallback when vault
+                  is available and -SessionOnly is not set.
 2.4.3 | 17MAY26 | British/Australian English spelling applied throughout. Initialize renamed
                   to Initialise in private function names (Initialise-ServiceConfig,
                   Initialise-VaultIndex) and all call sites. American spellings corrected
