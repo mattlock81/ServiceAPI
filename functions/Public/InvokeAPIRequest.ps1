@@ -154,33 +154,9 @@ function Invoke-APIRequest {
         [AllowEmptyString()]
         [string]$UseToken = 'default',
 
-        # -UseSSO accepts an optional inline provider name. Presence activates SSO mode.
-        # Tab completion offers known providers, with the service default surfaced first.
-        [ArgumentCompleter({
-            param($cmd, $param, $word, $ast, $fakeBound)
-            $providers = @('GCloud', 'AzureCLI')
-
-            # Surface registered default provider for the current -Service value first
-            $svc = $fakeBound['Service']
-            $env = if ($fakeBound['Environment']) { $fakeBound['Environment'] } else { 'prod' }
-            if ($svc -and $global:ServiceRegistry -and
-                $global:ServiceRegistry.ContainsKey($svc) -and
-                $global:ServiceRegistry[$svc].ContainsKey($env) -and
-                $global:ServiceRegistry[$svc][$env].SSOProvider) {
-                $default  = $global:ServiceRegistry[$svc][$env].SSOProvider
-                $providers = @($default) + ($providers | Where-Object { $_ -ne $default })
-            }
-
-            $providers |
-                Where-Object { $_ -like "$word*" } |
-                ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new(
-                        $_, $_, 'ParameterValue', $_
-                    )
-                }
-        })]
-        [AllowEmptyString()]
-        [string]$UseSSO = '',
+        # -UseSSO activates SSO credential resolution. Provider is resolved automatically from
+        # the service registry (SSOProvider set via Register-CustomService). No value required.
+        [switch]$UseSSO,
 
         # -SessionOnly bypasses vault lookup and storage for token-mode requests.
         [switch]$SessionOnly,
@@ -217,10 +193,12 @@ function Invoke-APIRequest {
             # Prompt for session or permanent storage
             $persistence = Read-Host "Register as permanent or session only? (P/S)"
 
-            # Infer SSOProvider from the current call if -UseSSO was supplied with a provider value
+            # Infer SSOProvider from service registry if -UseSSO was specified
             $inferredProvider = $null
-            if ($useSSOMode -and -not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
-                $inferredProvider = [string]$UseSSO
+            if ($useSSOMode -and $global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
+                $global:ServiceRegistry[$Service][$Environment].SSOProvider) {
+                $inferredProvider = $global:ServiceRegistry[$Service][$Environment].SSOProvider
             }
 
             $regParams = @{
@@ -287,9 +265,7 @@ function Invoke-APIRequest {
 
             # Pass auth mode parameters through to Get-ServiceConfig
             if ($useSSOMode) {
-                $configParams['UseSSO'] = if (-not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
-                    [string]$UseSSO
-                } else { $null }
+                $configParams['UseSSO'] = $true
             } elseif ($useTokenMode) {
                 $configParams['UseToken'] = if (-not [string]::IsNullOrWhiteSpace([string]$UseToken)) {
                     [string]$UseToken
