@@ -61,10 +61,13 @@ function Get-ServiceConfig {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.5.0
+        Version     : 2.5.1
         Date        : 17-MAY-26
 
         CHANGE LOG
+        2.5.1 | 17MAY26 | Added 'None' to -AuthType ValidateSet. Credential resolution
+                          skipped entirely when AuthType is 'None' — suitable for
+                          unauthenticated local services and listeners.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] and
                           -Label parameters. Auth mode selection is now explicit and tab-completed.
         2.4.4 | 17MAY26 | Added -SessionOnly and -Endpoint pass-through to Get-ServiceCredential.
@@ -96,7 +99,7 @@ function Get-ServiceConfig {
         })]
         [string]$Service,
 
-        [ValidateSet('Basic', 'Token', 'SSO')]
+        [ValidateSet('Basic', 'Token', 'SSO', 'None')]
         [string]$AuthType = 'Basic',
 
         # Vault label — applies to Basic and Token auth types. Defaults to 'default'.
@@ -151,7 +154,7 @@ function Get-ServiceConfig {
         }
 
         # === Resolve credential-derived headers when Authorization is not already present ===
-        if (-not $hasAuthorizationHeader) {
+        if (-not $hasAuthorizationHeader -and $AuthType -ne 'None') {
 
             $credParams = @{
                 Service     = $Service
@@ -180,7 +183,7 @@ function Get-ServiceConfig {
                 }
             }
         } else {
-            Write-Verbose "Using Authorization header from DefaultHeaders — skipping credential resolution."
+            Write-Verbose "Skipping credential resolution — AuthType is '$AuthType'."
         }
 
         return @{
