@@ -1,4 +1,4 @@
-﻿function Get-ServiceCredential {
+function Get-ServiceCredential {
     <#
     .SYNOPSIS
         Resolves authentication headers for a registered service.
@@ -7,9 +7,11 @@
         Resolves authentication headers for a registered service using one of three modes.
 
         Basic Auth is the default. When neither -UseToken nor -UseSSO is specified, the function
-        resolves a PSCredential from the Basic Auth credential store using a four-tier fallback:
-        service+environment, service-global, any service matching the environment, global. If no
-        credential is found, the function prompts interactively and stores the result.
+        attempts vault resolution first (when SecretManagement is available and -SessionOnly is
+        not set), then falls through to the four-tier in-memory fallback:
+        service+environment, service-global, any service matching the environment, global.
+        If no credential is found, the function prompts interactively via Resolve-VaultCredential
+        which offers vault storage on success.
 
         Token mode (-UseToken) resolves a credential using the following priority chain:
         1. When SecretManagement is available, Resolve-VaultCredential handles the full flow:
@@ -36,12 +38,12 @@
         token string. Prompts interactively if no value is supplied or label not found.
 
     .PARAMETER UseSSO
-        Switches to SSO credential resolution. Accepts an optional inline provider name.
+        Switches to SSO credential resolution. Provider resolved from service registry.
         Performs lazy refresh when the stored token is stale. No Basic or token fallback.
 
     .PARAMETER SessionOnly
         Bypasses vault lookup and storage when SecretManagement is available. Prompts
-        interactively and stores the result in the session token store only.
+        interactively and stores the result in the session store only.
 
     .PARAMETER Endpoint
         Passed through to Resolve-VaultCredential for test call validation.
@@ -51,39 +53,45 @@
 
     .EXAMPLE
         Get-ServiceCredential -Service jira -Environment prod
-        Resolves Basic Auth headers for jira in prod using the four-tier fallback.
+        Vault-enabled: checks vault for jira-prod Basic Auth credential, prompts if absent.
 
     .EXAMPLE
         Get-ServiceCredential -Service opnsense -Environment prod -UseToken
-        Vault-enabled: prompts for credentials, test calls, offers vault storage.
+        Vault-enabled: prompts for token credential, test calls, offers vault storage.
 
     .EXAMPLE
         Get-ServiceCredential -Service opnsense -Environment prod -UseToken 'matt'
-        Vault-enabled: retrieves the 'matt' labelled credential from the vault.
+        Vault-enabled: retrieves the 'matt' labelled token credential from the vault.
 
     .EXAMPLE
         Get-ServiceCredential -Service cloudflare -Environment prod -UseToken 'cfat_xxxxx'
         Raw token — stored directly, no vault label lookup.
 
     .EXAMPLE
-        Get-ServiceCredential -Service googleapi -Environment prod -UseSSO
+        Get-ServiceCredential -Service google -Environment prod -UseSSO
         Resolves SSO Bearer headers using the registered GCloud provider.
 
     .EXAMPLE
-        Get-ServiceCredential -Service opnsense -Environment prod -UseToken -SessionOnly
-        Prompts interactively, stores in session only — vault bypassed.
+        Get-ServiceCredential -Service jira -Environment prod -SessionOnly
+        Prompts interactively for Basic Auth, stores in session only — vault bypassed.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.4.0
+        Version     : 2.4.4
         Date        : 17-MAY-26
 
         CHANGE LOG
+        2.4.4 | 17MAY26 | Extended vault resolution to Basic Auth (Priority 2). When vault is
+                          detected and not -SessionOnly, Resolve-VaultCredential is called with
+                          AuthType Basic before the four-tier in-memory fallback. PSCredential
+                          objects stored and retrieved natively via SecretManagement. Vault miss
+                          falls through to existing four-tier fallback chain unchanged.
+        2.4.3 | 17MAY26 | Australian/British English spelling applied throughout.
         2.4.0 | 17MAY26 | Added SecretManagement vault resolution tier into Priority 1 (token mode).
                           When vault is detected, Resolve-VaultCredential handles label lookup,
                           interactive prompt, test call validation, and vault write-back.
-                          -SessionOnly and -Endpoint and -BaseUrl parameters added for vault flow.
+                          -SessionOnly, -Endpoint and -BaseUrl parameters added for vault flow.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO-based credential resolution with lazy
                           refresh via provider dispatch. -UseToken changed from [switch] to [string]
@@ -121,7 +129,7 @@
         # -UseSSO activates SSO credential resolution. Provider resolved from service registry.
         [switch]$UseSSO,
 
-        # -SessionOnly bypasses vault lookup and storage — session token store only.
+        # -SessionOnly bypasses vault lookup and storage — session store only.
         [switch]$SessionOnly,
 
         # Passed through to Resolve-VaultCredential for test call validation.
@@ -188,7 +196,7 @@
         }
 
         $token = ConvertSecureStringToPlainText -SecureString $global:ServiceSSOTokens[$key].Token
-        $headers['Authorization'] = "Bearer $token"
+        $headers['Authorization'] = "Bearer ${token}"
         return $headers
     }
 
@@ -201,7 +209,7 @@
             throw "Token credential resolution requires both -Service and -Environment."
         }
 
-        $key         = New-ServiceKey -Service $Service -Environment $Environment
+        $key          = New-ServiceKey -Service $Service -Environment $Environment
         $labelOrToken = if ([string]::IsNullOrWhiteSpace([string]$UseToken)) { 'default' } else { [string]$UseToken }
 
         # =====================================================================
@@ -212,6 +220,7 @@
             $vaultParams = @{
                 Service     = $Service
                 Environment = $Environment
+                AuthType    = 'Token'
                 Label       = $labelOrToken
             }
             if ($Endpoint) { $vaultParams['Endpoint'] = $Endpoint }
@@ -252,7 +261,7 @@
 
         if ($global:ServiceTokens.ContainsKey($key)) {
             $token = ConvertSecureStringToPlainText -SecureString $global:ServiceTokens[$key]
-            $headers['Authorization'] = "Bearer $token"
+            $headers['Authorization'] = "Bearer ${token}"
             return $headers
         }
 
@@ -265,34 +274,73 @@
         }
 
         $token = ConvertSecureStringToPlainText -SecureString $global:ServiceTokens[$key]
-        $headers['Authorization'] = "Bearer $token"
+        $headers['Authorization'] = "Bearer ${token}"
         return $headers
     }
 
     # =========================================================================
-    # PRIORITY 2 — Basic Auth: default four-tier fallback
+    # PRIORITY 2 — Basic Auth
     # =========================================================================
+    $key = New-ServiceKey -Service $Service -Environment $Environment
+
+    # =====================================================================
+    # VAULT PATH — when SecretManagement is available and not -SessionOnly
+    # =====================================================================
+    if ($script:ServiceApiHasSecretManagement -and -not $SessionOnly) {
+
+        $vaultParams = @{
+            Service     = $Service
+            Environment = $Environment
+            AuthType    = 'Basic'
+            Label       = 'default'
+        }
+        if ($Endpoint) { $vaultParams['Endpoint'] = $Endpoint }
+        if ($BaseUrl)  { $vaultParams['BaseUrl']  = $BaseUrl  }
+
+        $resolved = Resolve-VaultCredential @vaultParams
+
+        if ($null -ne $resolved) {
+            # PSCredential returned — build Basic Auth header directly
+            $b64 = [Convert]::ToBase64String(
+                [Text.Encoding]::ASCII.GetBytes(
+                    "$($resolved.UserName):$($resolved.GetNetworkCredential().Password)"
+                )
+            )
+            $headers['Authorization'] = "Basic $b64"
+
+            # Cache in session store for any in-session calls that bypass vault
+            $global:ServiceCredentials[$key] = $resolved
+            return $headers
+        }
+
+        # Vault returned null — user cancelled. Abort rather than falling through.
+        throw "Credential resolution cancelled for [$key]."
+    }
+
+    # =====================================================================
+    # NON-VAULT PATH — SecretManagement unavailable or -SessionOnly
+    # Four-tier in-memory fallback then interactive prompt
+    # =====================================================================
     $cred = $null
 
     # Tier 1: Exact service + environment match
-    $key = New-ServiceKey -Service $Service -Environment $Environment
     if ($Service -and $Environment -and $global:ServiceCredentials.ContainsKey($key)) {
         $cred = $global:ServiceCredentials[$key]
 
     # Tier 2: Service-global fallback
     } elseif ($Service) {
-        $key = New-ServiceKey -Service $Service
-        if ($global:ServiceCredentials.ContainsKey($key)) {
-            $cred = $global:ServiceCredentials[$key]
+        $svcKey = New-ServiceKey -Service $Service
+        if ($global:ServiceCredentials.ContainsKey($svcKey)) {
+            $cred = $global:ServiceCredentials[$svcKey]
         }
     }
 
     # Tier 3: Any registered service matching the environment
     if (-not $cred -and $Environment) {
         foreach ($svc in $global:RegisteredServices) {
-            $key = New-ServiceKey -Service $svc -Environment $Environment
-            if ($global:ServiceCredentials.ContainsKey($key)) {
-                $cred = $global:ServiceCredentials[$key]
+            $envKey = New-ServiceKey -Service $svc -Environment $Environment
+            if ($global:ServiceCredentials.ContainsKey($envKey)) {
+                $cred = $global:ServiceCredentials[$envKey]
                 break
             }
         }
@@ -300,10 +348,10 @@
 
     # Tier 4: Global fallback
     if (-not $cred) {
-        $key = New-ServiceKey -Global
-        if ($global:ServiceCredentials.ContainsKey($key)) {
+        $globalKey = New-ServiceKey -Global
+        if ($global:ServiceCredentials.ContainsKey($globalKey)) {
             Write-Verbose "Using global credential fallback."
-            $cred = $global:ServiceCredentials[$key]
+            $cred = $global:ServiceCredentials[$globalKey]
         }
     }
 
@@ -316,7 +364,6 @@
             throw "Interactive credential prompt failed: $_"
         }
 
-        $key = New-ServiceKey -Service $Service -Environment $Environment
         if ($global:ServiceCredentials.ContainsKey($key)) {
             $cred = $global:ServiceCredentials[$key]
         } else {
