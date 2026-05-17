@@ -55,10 +55,12 @@ function Get-ServiceConfig {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.3.0
-        Date        : 16-MAY-26
+        Version     : 2.4.0
+        Date        : 17-MAY-26
 
         CHANGE LOG
+        2.4.0 | 17MAY26 | Added -SessionOnly pass-through. Added Endpoint and BaseUrl pass-through
+                          to Get-ServiceCredential for vault test call validation.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO credential resolution pass-through to
                           Get-ServiceCredential. Removed early-fail stub for -UseSSO. Both -UseToken
@@ -97,7 +99,13 @@ function Get-ServiceConfig {
 
         # -UseSSO accepts an optional inline provider name. Presence activates SSO mode.
         [AllowNull()][AllowEmptyString()]
-        [object]$UseSSO
+        [object]$UseSSO,
+
+        # -SessionOnly bypasses vault lookup and storage — passed through to Get-ServiceCredential.
+        [switch]$SessionOnly,
+
+        # Passed through to Get-ServiceCredential for vault test call validation.
+        [string]$Endpoint
     )
 
     $useTokenMode = $PSBoundParameters.ContainsKey('UseToken')
@@ -165,6 +173,10 @@ function Get-ServiceConfig {
                 } else {
                     $credParams['UseToken'] = $null
                 }
+                # Pass vault-related parameters for test call validation and session-only override
+                if ($SessionOnly) { $credParams['SessionOnly'] = $true }
+                if ($Endpoint)    { $credParams['Endpoint']    = $Endpoint }
+                if ($BaseUrl)     { $credParams['BaseUrl']     = $BaseUrl }
             }
             # No else needed — default omits both, Get-ServiceCredential defaults to Basic Auth
 
