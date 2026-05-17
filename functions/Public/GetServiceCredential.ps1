@@ -113,13 +113,14 @@ function Get-ServiceCredential {
         [string]$Service,
         [string]$Environment = 'prod',
 
-        # -UseToken accepts a vault label, raw token, or nothing (defaults to 'default' label).
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseToken,
+        # -UseToken accepts a vault label or raw token value.
+        # Defaults to 'default' when specified without a value — resolves the default vault label.
+        [AllowEmptyString()]
+        [string]$UseToken = 'default',
 
         # -UseSSO accepts an optional inline provider name. Presence alone activates SSO mode.
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseSSO,
+        [AllowEmptyString()]
+        [string]$UseSSO = '',
 
         # -SessionOnly bypasses vault lookup and storage — session token store only.
         [switch]$SessionOnly,

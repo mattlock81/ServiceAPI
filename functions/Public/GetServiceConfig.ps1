@@ -93,13 +93,14 @@ function Get-ServiceConfig {
         [string]$Environment = 'prod',
         [string]$BaseUrl,
 
-        # -UseToken accepts an optional inline token value. Presence activates token mode.
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseToken,
+        # -UseToken accepts an optional vault label or raw token value.
+        # Defaults to 'default' when specified without a value — resolves the default vault label.
+        [AllowEmptyString()]
+        [string]$UseToken = 'default',
 
         # -UseSSO accepts an optional inline provider name. Presence activates SSO mode.
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseSSO,
+        [AllowEmptyString()]
+        [string]$UseSSO = '',
 
         # -SessionOnly bypasses vault lookup and storage — passed through to Get-ServiceCredential.
         [switch]$SessionOnly,
