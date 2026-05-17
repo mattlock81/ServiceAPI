@@ -17,13 +17,14 @@
         PSData = @{
             Tags = @('API', 'REST', 'Atlassian', 'Jira', 'Confluence', 'OPNsense', 'Google', 'OAuth', 'SSO', 'SecretManagement', 'Vault', 'DevOps', 'Automation')
             ReleaseNotes = @'
-2.5.0 | 17MAY26 | Moved user configuration out of module directory so module updates never
-                  overwrite user data. services.json moved to $env:APPDATA\ServiceAPI\ —
-                  roams with user profile across machines. credential-index.json moved to
-                  $env:LOCALAPPDATA\ServiceAPI\ — machine-local, consistent with vault store.
-                  Module config\ directory removed from repo. $script:ServiceApiConfigPath and
-                  $script:ServiceApiVaultIndexPath added to psm1 Phase 1. All six config
-                  private functions updated to use new paths.
+2.5.0 | 17MAY26 | Unified authentication model — replaced -UseToken and -UseSSO parameters
+                  with -AuthType [ValidateSet('Basic','Token','SSO')] across all public
+                  functions. Added -Label parameter for named vault credential retrieval,
+                  defaulting to 'default'. Auth mode selection is now explicit, tab-completed,
+                  and unambiguous. -SessionOnly retained as a modifier for Basic and Token.
+                  Moved user configuration out of module directory — services.json to
+                  $env:APPDATA\ServiceAPI\, credential-index.json to $env:LOCALAPPDATA\ServiceAPI\.
+                  Module updates no longer overwrite user data.
 2.4.4 | 17MAY26 | Extended SecretManagement vault integration to Basic Auth. Resolve-VaultCredential
                   extended with -AuthType parameter (Token/Basic). Basic Auth path stores and
                   retrieves PSCredential objects natively. Get-ServiceCredential Priority 2 now

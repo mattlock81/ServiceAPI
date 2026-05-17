@@ -128,10 +128,19 @@ function Resolve-VaultCredential {
                 $secret = Get-Secret -Name $vaultName -ErrorAction Stop
 
                 if ($isBasic) {
-                    # Basic path expects PSCredential — convert plain string if needed
+                    # Basic path expects PSCredential — convert SecureString or plain string if needed
                     if ($secret -is [PSCredential]) {
                         Write-Verbose "Retrieved Basic Auth PSCredential [$vaultName]."
                         return $secret
+                    } elseif ($secret -is [System.Security.SecureString]) {
+                        $plain    = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+                        )
+                        $colonIdx = $plain.IndexOf(':')
+                        $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
+                        $p        = $plain.Substring($colonIdx + 1)
+                        Write-Verbose "Retrieved SecureString [$vaultName] — converted to PSCredential."
+                        return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
                     } else {
                         $plain    = [string]$secret
                         $colonIdx = $plain.IndexOf(':')
@@ -141,12 +150,18 @@ function Resolve-VaultCredential {
                         return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
                     }
                 } else {
-                    # Token path expects plain string — convert PSCredential if needed
+                    # Token path expects plain string — convert PSCredential or SecureString if needed
                     if ($secret -is [PSCredential]) {
                         $u   = $secret.UserName
                         $p   = $secret.GetNetworkCredential().Password
                         $raw = if ([string]::IsNullOrWhiteSpace($u)) { ":${p}" } else { "${u}:${p}" }
                         Write-Verbose "Retrieved PSCredential [$vaultName] — converted to token string."
+                        return $raw
+                    } elseif ($secret -is [System.Security.SecureString]) {
+                        $raw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+                        )
+                        Write-Verbose "Retrieved SecureString [$vaultName] — converted to plain string."
                         return $raw
                     } else {
                         Write-Verbose "Retrieved token secret [$vaultName]."
@@ -179,6 +194,14 @@ function Resolve-VaultCredential {
                         if ($secret -is [PSCredential]) {
                             Write-Verbose "Retrieved Basic Auth PSCredential [$selectedVault]."
                             return $secret
+                        } elseif ($secret -is [System.Security.SecureString]) {
+                            $plain    = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+                            )
+                            $colonIdx = $plain.IndexOf(':')
+                            $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
+                            $p        = $plain.Substring($colonIdx + 1)
+                            return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
                         } else {
                             $plain    = [string]$secret
                             $colonIdx = $plain.IndexOf(':')
@@ -191,6 +214,11 @@ function Resolve-VaultCredential {
                             $u   = $secret.UserName
                             $p   = $secret.GetNetworkCredential().Password
                             $raw = if ([string]::IsNullOrWhiteSpace($u)) { ":${p}" } else { "${u}:${p}" }
+                            return $raw
+                        } elseif ($secret -is [System.Security.SecureString]) {
+                            $raw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+                            )
                             return $raw
                         } else {
                             return [string]$secret

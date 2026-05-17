@@ -1,4 +1,4 @@
-﻿function Invoke-APIRequest {
+function Invoke-APIRequest {
     <#
     .SYNOPSIS
         Executes a REST API request using either registered service configuration or explicit header-based authentication.
@@ -6,26 +6,31 @@
     .DESCRIPTION
         Invoke-APIRequest supports two request modes.
 
-        In service/config-driven mode, the function resolves BaseUrl and authentication headers from
-        registered service configuration and stored credentials. Three credential modes are available:
+        In service/config-driven mode, the function resolves BaseUrl and authentication
+        headers from registered service configuration and stored credentials. The
+        authentication type is specified via -AuthType (Basic, Token, or SSO).
 
-        - Default (no auth switch): Basic Auth via four-tier credential fallback.
-        - -UseToken: Static long-lived Bearer token from $global:ServiceTokens. Accepts an optional
-          inline token value; prompts and stores if absent.
-        - -UseSSO: Short-lived OAuth Bearer token from $global:ServiceSSOTokens with automatic lazy
-          refresh via the registered SSO provider. Accepts an optional inline provider name.
+        - Basic (default): PSCredential from vault or four-tier in-memory fallback.
+        - Token: Static long-lived token from vault by label. Key presence determines
+          whether a Bearer or Basic header is built.
+        - SSO: Short-lived OAuth Bearer token via provider dispatch. Provider resolved
+          from service registry. Auto-refreshed when stale. Never stored in vault.
 
-        When an unregistered service name is supplied, the function prompts to register it inline.
-        The caller is asked for a BaseUrl and whether to persist the registration to services.json
-        (permanent) or keep it for the current session only. The auth mode inferred from the current
-        call determines what is stored: Basic Auth by default, or the SSO provider if -UseSSO was
-        specified with a provider value.
+        -Label specifies the vault credential label for Basic and Token auth types.
+        Defaults to 'default'. Multiple credentials per service are supported by
+        registering them under different labels.
 
-        In explicit header override mode, the function sends the request directly when -BaseUrl,
-        -Endpoint, and -Headers.Authorization are supplied without -UseToken or -UseSSO. In this
-        mode service/config/credential resolution is bypassed entirely.
+        -SessionOnly bypasses vault lookup and storage for Basic and Token auth types.
+        Ignored for SSO.
 
-        Service/config-driven Basic Auth requests retain 403 retry with credential refresh.
+        When an unregistered service name is supplied, the function prompts to register
+        it inline with a BaseUrl and session/permanent choice.
+
+        In explicit header override mode, the function sends the request directly when
+        -BaseUrl, -Endpoint, and -Headers.Authorization are supplied without -AuthType
+        Token or SSO. Service/config/credential resolution is bypassed entirely.
+
+        Basic Auth requests retain 403 retry with credential refresh.
         Token and SSO requests do not retry on 403.
         -Silent suppresses all handled-error output while still rethrowing to the caller.
 
@@ -39,56 +44,61 @@
     .PARAMETER Endpoint
         The relative path to append to the service BaseUrl.
 
+    .PARAMETER AuthType
+        The authentication type. Accepted values: Basic, Token, SSO. Defaults to Basic.
+        Tab-completed. Determines the credential resolution path.
+
+    .PARAMETER Label
+        The vault credential label to retrieve for Basic and Token auth types.
+        Defaults to 'default'. Ignored for SSO.
+
     .PARAMETER Environment
         The environment to target: qa, prod, dev. Defaults to prod.
 
     .PARAMETER Body
-        Optional body payload. Automatically Serialised to JSON if supplied.
+        Optional body payload. Automatically serialised to JSON if supplied.
 
     .PARAMETER Headers
-        Custom headers to merge with resolved service headers. If Headers contains Authorization
-        and BaseUrl and Endpoint are supplied without -UseToken or -UseSSO, the request runs in
-        explicit auth override mode and skips service/config/credential resolution.
+        Custom headers to merge with resolved service headers. If Headers contains
+        Authorization and BaseUrl and Endpoint are supplied without -AuthType Token or
+        SSO, the request runs in explicit auth override mode.
 
     .PARAMETER BaseUrl
-        Optional custom BaseUrl override. May be supplied for explicit header override requests
-        or to override the registered BaseUrl for a config-driven request.
+        Optional custom BaseUrl override.
 
-    .PARAMETER UseToken
-        Switches to static token credential resolution. Accepts an optional inline token value.
-        If absent, prompts and stores. No Basic fallback.
-
-    .PARAMETER UseSSO
-        Switches to SSO credential resolution with automatic token refresh. Accepts an optional
-        inline provider name. Resolves provider from registry if not supplied. No Basic fallback.
+    .PARAMETER SessionOnly
+        Bypasses vault lookup and storage for Basic and Token auth types. Ignored for SSO.
 
     .PARAMETER Silent
-        Suppresses module-generated handled-error output while still rethrowing exceptions to the
-        caller. Use when the caller owns error handling.
+        Suppresses module-generated handled-error output while still rethrowing exceptions.
 
     .EXAMPLE
         Invoke-APIRequest -Service jira -Endpoint 'api/2/myself'
-        Basic Auth request using the four-tier credential fallback.
+        Basic Auth request using vault or four-tier credential fallback.
 
     .EXAMPLE
-        Invoke-APIRequest -Service cloudflare -Endpoint 'zones' -UseToken
-        Token-based request. Prompts and stores if no token exists for cloudflare-prod.
+        Invoke-APIRequest -Service cloudflare -Endpoint 'zones' -AuthType Token
+        Token request using the 'default' vault label for cloudflare-prod.
 
     .EXAMPLE
-        Invoke-APIRequest -Service cloudflare -Endpoint 'zones' -UseToken 'cfat_xxxxx'
-        Token-based request. Stores the supplied token for cloudflare-prod and proceeds.
+        Invoke-APIRequest -Service cloudflare -Endpoint 'zones' -AuthType Token -Label work
+        Token request using the 'work' vault label for cloudflare-prod.
 
     .EXAMPLE
-        Invoke-APIRequest -Service googleapi -Endpoint 'gmail/v1/users/me/profile' -UseSSO
-        SSO request using the registered GCloud provider for googleapi-prod.
+        Invoke-APIRequest -Service opnsense -Endpoint 'core/firmware/status' -AuthType Token -Label matt
+        Token request using the 'matt' vault label for opnsense-prod.
 
     .EXAMPLE
-        Invoke-APIRequest -Service googleapi -Endpoint 'gmail/v1/users/me/profile' -UseSSO GCloud
-        SSO request specifying the GCloud provider explicitly.
+        Invoke-APIRequest -Service google -Endpoint 'gmail/v1/users/me/profile' -AuthType SSO
+        SSO request using the registered GCloud provider for google-prod.
+
+    .EXAMPLE
+        Invoke-APIRequest -Service jira -Endpoint 'api/2/myself' -AuthType Basic -SessionOnly
+        Basic Auth request bypassing vault — prompts interactively, session store only.
 
     .EXAMPLE
         Invoke-APIRequest -Service newapi -Endpoint 'resource'
-        Service not registered — prompts for BaseUrl and session/permanent choice before proceeding.
+        Unregistered service — prompts for BaseUrl and session/permanent choice.
 
     .EXAMPLE
         $headers = @{ Authorization = "Bearer $token" }
@@ -98,25 +108,24 @@
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.4.0
+        Version     : 2.5.0
         Date        : 17-MAY-26
 
         CHANGE LOG
-        2.4.0 | 17MAY26 | Added -SessionOnly switch for vault bypass. Endpoint and BaseUrl passed
-                          through to Get-ServiceConfig for vault test call validation.
-        2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for live tab completion from registry.
-                          Added [ArgumentCompleter] on -UseSSO for provider name completion.
-                          Added inline unregistered service registration prompt with session/permanent
-                          choice. Auth mode (Basic, Token, SSO) inferred from call parameters for
-                          inline registration — SSOProvider stored when -UseSSO is specified.
-        2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO credential resolution pass-through.
-                          Changed -UseToken from [switch] to [string]. Explicit auth override mode
-                          guarded against -UseToken and -UseSSO. 403 retry extended to exclude SSO.
-        2.1.1 | 28MAR26 | Restored Debug-Error based handled-error reporting with graceful fallback.
-        2.1.0 | 28MAR26 | Added explicit Authorization header override support and token-only auth.
+        2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] and
+                          -Label parameters. Auth mode selection is now explicit and tab-completed.
+                          Explicit auth override mode guarded against AuthType Token and SSO.
+                          403 retry block updated to check AuthType rather than former switches.
+        2.4.3 | 17MAY26 | Australian/British English spelling applied throughout.
+        2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service. Added inline unregistered
+                          service registration prompt. Added [ArgumentCompleter] on -UseSSO.
+        2.2.0 | 16MAY26 | Added -UseSSO parameter. Changed -UseToken from [switch] to [string].
+                          Explicit auth override mode guarded against -UseToken and -UseSSO.
+        2.1.1 | 28MAR26 | Restored Debug-Error based handled-error reporting.
+        2.1.0 | 28MAR26 | Added explicit Authorization header override support.
         2.0.0 | 27JAN26 | Refactored to use Get-ServiceConfig and Get-ServiceCredential.
         1.2.6 | 22SEP25 | Fixed authentication: auto-calls Set-ServiceCredential if no credential found.
-        1.2.5 | 22SEP25 | Changed 403 retry logic: retry only if cached credential exists.
+        1.2.5 | 22SEP25 | Changed 403 retry logic.
         1.2.4 | 22SEP25 | Added -Silent switch.
     #>
 
@@ -125,8 +134,6 @@
         [ValidateSet('GET', 'POST', 'PUT', 'DELETE', 'PATCH')]
         [string]$Method = 'GET',
 
-        # Tab completion reads live $global:RegisteredServices at press time.
-        # Unregistered values are allowed — handled by inline registration prompt below.
         [ArgumentCompleter({
             param($cmd, $param, $word, $ast, $fakeBound)
             if ($global:RegisteredServices) {
@@ -144,28 +151,25 @@
         [Parameter(Mandatory)]
         [string]$Endpoint,
 
+        # Authentication type — tab-completed, explicit, unambiguous.
+        [ValidateSet('Basic', 'Token', 'SSO')]
+        [string]$AuthType = 'Basic',
+
+        # Vault credential label — applies to Basic and Token. Defaults to 'default'.
+        [string]$Label = 'default',
+
         [string]$Environment = 'prod',
         [object]$Body,
         [object]$Headers,
         [string]$BaseUrl,
 
-        # -UseToken accepts an optional vault label or raw token value.
-        # Defaults to 'default' when specified without a value — resolves the default vault label.
-        [AllowEmptyString()]
-        [string]$UseToken = 'default',
-
-        # -UseSSO activates SSO credential resolution. Provider is resolved automatically from
-        # the service registry (SSOProvider set via Register-CustomService). No value required.
-        [switch]$UseSSO,
-
-        # -SessionOnly bypasses vault lookup and storage for token-mode requests.
+        # Bypasses vault lookup and storage for Basic and Token. Ignored for SSO.
         [switch]$SessionOnly,
 
         [switch]$Silent
     )
 
-    $useTokenMode = $PSBoundParameters.ContainsKey('UseToken')
-    $useSSOMode   = $PSBoundParameters.ContainsKey('UseSSO')
+    $useTokenOrSSO = $AuthType -in @('Token', 'SSO')
 
     try {
         $isExplicitAuthOverride = $false
@@ -173,7 +177,6 @@
         $authorizationValue     = $null
 
         # === Inline service registration — fires when service is not in the registry ===
-        # Only applies to config-driven mode (i.e. -Service is provided and not empty).
         if (-not [string]::IsNullOrWhiteSpace($Service) -and
             -not $global:ServiceRegistry.ContainsKey($Service)) {
 
@@ -184,18 +187,17 @@
                 throw "Service [$Service] is not registered and registration was declined."
             }
 
-            # Prompt for BaseUrl
             $newBaseUrl = Read-Host "BaseUrl for [$Service]"
             if ([string]::IsNullOrWhiteSpace($newBaseUrl)) {
                 throw "BaseUrl cannot be empty. Service [$Service] was not registered."
             }
 
-            # Prompt for session or permanent storage
             $persistence = Read-Host "Register as permanent or session only? (P/S)"
 
-            # Infer SSOProvider from service registry if -UseSSO was specified
+            # Infer SSOProvider from registry if AuthType is SSO
             $inferredProvider = $null
-            if ($useSSOMode -and $global:ServiceRegistry.ContainsKey($Service) -and
+            if ($AuthType -eq 'SSO' -and
+                $global:ServiceRegistry.ContainsKey($Service) -and
                 $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
                 $global:ServiceRegistry[$Service][$Environment].SSOProvider) {
                 $inferredProvider = $global:ServiceRegistry[$Service][$Environment].SSOProvider
@@ -207,18 +209,17 @@
                 Environment = $Environment
                 Force       = $true
             }
-            if ($inferredProvider) { $regParams['SSOProvider'] = $inferredProvider }
-            if ($persistence -eq 'P') { $regParams['Persistent'] = $true }
+            if ($inferredProvider)      { $regParams['SSOProvider'] = $inferredProvider }
+            if ($persistence -eq 'P')   { $regParams['Persistent']  = $true }
 
             Register-CustomService @regParams
-
             Write-Verbose "Service [$Service] registered for [$Environment]$(if ($persistence -eq 'P') { ' permanently' } else { ' for this session' })."
         }
 
         # === Explicit auth override detection ===
-        # Only fires when neither -UseToken nor -UseSSO is specified — prevents a caller-supplied
-        # Authorization header from silently bypassing SSO or token credential resolution.
-        if (-not $useTokenMode -and -not $useSSOMode -and
+        # Only fires for Basic auth without explicit AuthType specification — prevents
+        # a caller-supplied Authorization header from bypassing Token or SSO resolution.
+        if ($AuthType -eq 'Basic' -and
             -not [string]::IsNullOrWhiteSpace($BaseUrl) -and
             -not [string]::IsNullOrWhiteSpace($Endpoint) -and
             $null -ne $Headers) {
@@ -247,31 +248,21 @@
             $overrideHeaders.Keys | ForEach-Object { $mergedHeaders[$_] = $overrideHeaders[$_] }
 
         } else {
-            # Config-driven mode — resolve service configuration and credentials
+            # Config-driven mode
             if ([string]::IsNullOrWhiteSpace($Service)) {
                 throw "Service is required unless you supply BaseUrl and Headers.Authorization for explicit auth override."
             }
 
-            # Build Get-ServiceConfig parameter set
             $configParams = @{
                 Service     = $Service
                 Environment = $Environment
+                AuthType    = $AuthType
+                Label       = $Label
             }
 
-            if ($BaseUrl) { $configParams['BaseUrl'] = $BaseUrl }
-
-            # Pass Endpoint for vault test call validation in Get-ServiceCredential
-            if ($Endpoint) { $configParams['Endpoint'] = $Endpoint }
-
-            # Pass auth mode parameters through to Get-ServiceConfig
-            if ($useSSOMode) {
-                $configParams['UseSSO'] = $true
-            } elseif ($useTokenMode) {
-                $configParams['UseToken'] = if (-not [string]::IsNullOrWhiteSpace([string]$UseToken)) {
-                    [string]$UseToken
-                } else { $null }
-                if ($SessionOnly) { $configParams['SessionOnly'] = $true }
-            }
+            if ($BaseUrl)                              { $configParams['BaseUrl']     = $BaseUrl }
+            if ($Endpoint)                             { $configParams['Endpoint']    = $Endpoint }
+            if ($SessionOnly -and $AuthType -ne 'SSO') { $configParams['SessionOnly'] = $true }
 
             $config = Get-ServiceConfig @configParams
             if (-not $config) {
@@ -311,27 +302,25 @@
         return Invoke-RestMethod @params
 
     } catch {
-        # -Silent suppresses all handled-error output but still rethrows to the caller
         if ($Silent) { throw }
 
         # === 403 retry — Basic Auth only ===
-        # Token and SSO requests do not retry on 403.
         if (-not $isExplicitAuthOverride -and $_.Exception.Response.StatusCode.value__ -eq 403) {
             Write-Warning "Received 403 Forbidden. Checking cached credentials..."
 
-            if ($useTokenMode -or $useSSOMode) {
+            if ($useTokenOrSSO) {
                 throw "Token and SSO-based requests cannot be refreshed automatically via 403 retry. Re-authenticate and retry."
             }
 
             try {
                 $key = New-ServiceKey -Service $Service -Environment $Environment
                 if (-not $global:ServiceCredentials.ContainsKey($key)) {
-                    Write-Verbose "No cached Basic credential found for [$key]. Prompting via Set-ServiceCredential."
+                    Write-Verbose "No cached Basic Auth credential found for [$key]. Prompting via Set-ServiceCredential."
                 } else {
-                    Write-Verbose "Refreshing cached Basic credential for [$key]."
+                    Write-Verbose "Refreshing cached Basic Auth credential for [$key]."
                 }
 
-                Set-ServiceCredential -Service $Service -Environment $Environment
+                Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic
 
                 Write-Verbose "Retrying request after credential refresh."
                 return Invoke-APIRequest -Service $Service `

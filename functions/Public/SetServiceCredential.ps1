@@ -1,48 +1,49 @@
-﻿function Set-ServiceCredential {
+function Set-ServiceCredential {
     <#
     .SYNOPSIS
-        Stores Basic, Token, or SSO credentials for a service.
+        Stores Basic Auth, Token, or SSO credentials for a service.
 
     .DESCRIPTION
-        Stores credentials for use with Invoke-APIRequest. Three authentication modes are supported.
+        Stores credentials for use with Invoke-APIRequest. The authentication type is
+        specified via -AuthType (Basic, Token, or SSO). Defaults to Basic.
 
-        Basic Auth is the default. When neither -UseToken nor -UseSSO is specified, a PSCredential
-        object is stored in the Basic Auth credential store. If no -Credential is supplied, the
-        function prompts interactively. Basic credentials support global, service-global, environment-
-        wide, and service+environment-specific storage.
+        Basic Auth (-AuthType Basic):
+        Stores a PSCredential in the Basic Auth credential store. If no -Credential is
+        supplied, the function prompts interactively. Supports global, service-global,
+        environment-wide, and service+environment-specific storage.
 
-        Token mode (-UseToken) stores a static long-lived Bearer token for a specific service and
-        environment. The token value may be supplied inline as a plain string or SecureString. If no
-        value is supplied, the function prompts interactively. Bearer prefix is stripped before storage.
-        Token credentials require both -Service and -Environment. Global tokens are not supported.
+        Token (-AuthType Token):
+        Stores a static long-lived token for a specific service and environment. The token
+        value may be supplied inline as a plain string or SecureString. If no value is
+        supplied, the function prompts interactively. Bearer prefix is stripped before
+        storage. Requires both -Service and -Environment. Global tokens are not supported.
 
-        SSO mode (-UseSSO) obtains and stores a short-lived OAuth Bearer token using the configured
-        SSO provider for the service. The provider is resolved from the service registry entry set
-        via Register-CustomService -SSOProvider. If no provider is registered and none is supplied
-        inline, the function prompts to register one. SSO tokens are stored with an expiry timestamp
-        and refreshed automatically when stale. SSO credentials require both -Service and -Environment.
-        Global SSO tokens are not supported.
+        SSO (-AuthType SSO):
+        Obtains and stores a short-lived OAuth Bearer token using the SSO provider
+        configured for the service via Register-CustomService -SSOProvider. The provider
+        is resolved from the service registry. SSO tokens are stored with an expiry
+        timestamp and refreshed automatically when stale. Requires both -Service and
+        -Environment. Global SSO tokens are not supported.
 
     .PARAMETER Service
-        The API service name (e.g., jira, confluence, googleapi).
-        Required for token and SSO storage. Optional for Basic Auth global storage.
+        The API service name (e.g., jira, confluence, google).
+        Required for Token and SSO storage. Optional for Basic Auth global storage.
+
+    .PARAMETER AuthType
+        The authentication type to store. Accepted values: Basic, Token, SSO.
+        Defaults to Basic.
 
     .PARAMETER Credential
-        A PSCredential object for Basic Auth storage. If omitted, the function prompts interactively.
+        A PSCredential object for Basic Auth storage. If omitted, prompts interactively.
+        Only valid when -AuthType Basic is specified.
 
-    .PARAMETER UseToken
-        Switches to token-based credential storage. Accepts an optional inline token value as a
-        plain string or SecureString. If no value is supplied, prompts interactively.
-        Requires both -Service and -Environment.
-
-    .PARAMETER UseSSO
-        Switches to SSO-based credential storage. Accepts an optional inline provider name.
-        If no provider is supplied, resolves from the service registry or prompts to register one.
-        Requires both -Service and -Environment.
+    .PARAMETER Label
+        The vault label to store the credential under. Defaults to 'default'.
+        Applies to Basic and Token auth types.
 
     .PARAMETER Environment
         The environment: qa, prod, dev, or global (Basic Auth only). Defaults to prod.
-        Required for token and SSO storage.
+        Required for Token and SSO storage.
 
     .PARAMETER Global
         Explicitly store credential as global fallback (Basic Auth only).
@@ -52,39 +53,34 @@
 
     .EXAMPLE
         Set-ServiceCredential -Service jira -Environment prod
-        Prompts interactively and stores Basic credentials for jira in prod.
+        Prompts interactively and stores Basic Auth credentials for jira in prod.
 
     .EXAMPLE
-        Set-ServiceCredential -Service cloudflare -Environment prod -UseToken 'cfat_xxxxx'
-        Stores a raw token string for cloudflare in prod.
+        Set-ServiceCredential -Service jira -Environment prod -AuthType Basic -Label matt
+        Prompts interactively and stores Basic Auth credentials under label 'matt'.
 
     .EXAMPLE
-        Set-ServiceCredential -Service cloudflare -Environment prod -UseToken
-        Prompts interactively for a token and stores it for cloudflare in prod.
+        Set-ServiceCredential -Service cloudflare -Environment prod -AuthType Token
+        Prompts interactively for a token and stores it under the 'default' label.
 
     .EXAMPLE
-        Set-ServiceCredential -Service googleapi -Environment prod -UseSSO
+        Set-ServiceCredential -Service google -Environment prod -AuthType SSO
         Resolves the GCloud provider from the service registry, obtains a token, and stores it.
-
-    .EXAMPLE
-        Set-ServiceCredential -Service googleapi -Environment prod -UseSSO GCloud
-        Explicitly specifies the GCloud provider, obtains a token, and stores it.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.3.0
-        Date        : 16-MAY-26
+        Version     : 2.5.0
+        Date        : 17-MAY-26
 
         CHANGE LOG
+        2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] parameter.
+                          Added -Label parameter for named vault credential storage. Auth mode
+                          selection is now explicit and tab-completed. -SessionOnly not applicable
+                          to Set-ServiceCredential — applies to Get-ServiceCredential only.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
-        2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO-based token storage. SSO tokens are
-                          obtained via provider dispatch, stored in $global:ServiceSSOTokens with
-                          expiry metadata. -UseToken changed from [switch] to [string] to support
-                          optional inline token value. Interactive prompt added for -UseToken when
-                          no value is supplied.
-        2.1.1 | 28MAR26 | Documentation refresh for module-level handled-error reporting and version consistency.
-        2.1.0 | 28MAR26 | Added plain string token input support and Bearer prefix normalisation before storage.
+        2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO-based token storage.
+        2.1.0 | 28MAR26 | Added plain string token input support and Bearer prefix normalisation.
         2.0.0 | 27JAN26 | Refactored from Set-AtlassianCredential to support generalised API services.
         1.2.2 | 23JUN25 | Disallowed global PATs. Enforced service+environment requirement for PATs.
         1.2.1 | 04JUN25 | Refined global resolution logic to ensure accurate key assignment.
@@ -106,40 +102,24 @@
             }
         })]
         [string]$Service,
+
+        [ValidateSet('Basic', 'Token', 'SSO')]
+        [string]$AuthType = 'Basic',
+
         [pscredential]$Credential,
 
-        # -UseToken accepts an optional inline token value (plain string or SecureString).
-        # Presence alone activates token mode. Inline value bypasses interactive prompt.
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseToken,
-
-        # -UseSSO accepts an optional inline provider name.
-        # Presence alone activates SSO mode. Inline value overrides registry provider lookup.
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseSSO,
+        # Vault label — applies to Basic and Token auth types. Defaults to 'default'.
+        [string]$Label = 'default',
 
         [string]$Environment = 'prod',
         [switch]$Global,
         [switch]$Force
     )
 
-    $useTokenMode = $PSBoundParameters.ContainsKey('UseToken')
-    $useSSOMode   = $PSBoundParameters.ContainsKey('UseSSO')
-    $credSupplied = $PSBoundParameters.ContainsKey('Credential')
-
-    # === Disallow combining auth modes ===
-    if ($useTokenMode -and $useSSOMode) {
-        throw "You cannot specify both -UseToken and -UseSSO. Choose one authentication mode."
-    }
-
-    if (($useTokenMode -or $useSSOMode) -and $credSupplied) {
-        throw "You cannot supply -Credential with -UseToken or -UseSSO. Choose one authentication mode."
-    }
-
     # =========================================================================
-    # TOKEN MODE — static long-lived Bearer token
+    # TOKEN MODE
     # =========================================================================
-    if ($useTokenMode) {
+    if ($AuthType -eq 'Token') {
 
         if (-not $Service -or $Service -eq 'global') {
             throw "Token storage requires -Service. Global tokens are not supported."
@@ -148,18 +128,13 @@
             throw "Token storage requires -Environment. Global tokens are not supported."
         }
 
-        # Resolve token value — inline, SecureString, or interactive prompt
-        $tokenValue = $null
+        # Prompt interactively — token is always entered via secure prompt
+        Write-Host "Enter token for [$Service-$Environment] (Label: $Label):" -ForegroundColor Cyan
+        $secureInput = Read-Host -AsSecureString "Token"
+        $tokenValue  = ConvertSecureStringToPlainText -SecureString $secureInput
 
-        if ($null -ne $UseToken -and $UseToken -isnot [string] -and $UseToken -is [SecureString]) {
-            $tokenValue = ConvertSecureStringToPlainText -SecureString $UseToken
-        } elseif (-not [string]::IsNullOrWhiteSpace([string]$UseToken)) {
-            $tokenValue = [string]$UseToken
-        } else {
-            # No inline value supplied — prompt interactively
-            Write-Host "Enter token for [$Service-$Environment]:" -ForegroundColor Cyan
-            $secureInput = Read-Host -AsSecureString "Token"
-            $tokenValue  = ConvertSecureStringToPlainText -SecureString $secureInput
+        if ([string]::IsNullOrWhiteSpace($tokenValue)) {
+            throw "Token value cannot be null or empty."
         }
 
         # Strip Bearer prefix before storage — raw token value only
@@ -167,27 +142,23 @@
             $tokenValue = $tokenValue.Substring(7)
         }
 
-        if ([string]::IsNullOrWhiteSpace($tokenValue)) {
-            throw "Token value cannot be null or empty."
-        }
-
         $secureToken = ConvertTo-SecureString -String $tokenValue -AsPlainText -Force
         $key         = New-ServiceKey -Service $Service -Environment $Environment
 
         if ($global:ServiceTokens.ContainsKey($key) -and -not $Force) {
-            $confirm = Read-Host "Token for [$key] already exists. Overwrite? (Y/N)"
+            $confirm = Read-Host "Token for [$key] (Label: $Label) already exists. Overwrite? (Y/N)"
             if ($confirm -ne 'Y') { return }
         }
 
         $global:ServiceTokens[$key] = $secureToken
-        Write-Verbose "Stored static token for [$key]."
+        Write-Verbose "Stored token for [$key] under label [$Label]."
         return
     }
 
     # =========================================================================
-    # SSO MODE — short-lived OAuth Bearer token with expiry and provider dispatch
+    # SSO MODE
     # =========================================================================
-    if ($useSSOMode) {
+    if ($AuthType -eq 'SSO') {
 
         if (-not $Service -or $Service -eq 'global') {
             throw "SSO token storage requires -Service. Global SSO tokens are not supported."
@@ -196,24 +167,20 @@
             throw "SSO token storage requires -Environment. Global SSO tokens are not supported."
         }
 
-        # Resolve the provider — inline value, registry lookup, or interactive prompt
+        # Resolve provider from service registry
         $provider = $null
 
-        if (-not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
-            # Provider supplied inline
-            $provider = [string]$UseSSO
-        } elseif ($global:ServiceRegistry.ContainsKey($Service) -and
-                  $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
-                  $global:ServiceRegistry[$Service][$Environment].SSOProvider) {
-            # Provider resolved from service registry
+        if ($global:ServiceRegistry.ContainsKey($Service) -and
+            $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
+            $global:ServiceRegistry[$Service][$Environment].SSOProvider) {
             $provider = $global:ServiceRegistry[$Service][$Environment].SSOProvider
             Write-Verbose "Resolved SSO provider [$provider] from service registry for [$Service-$Environment]."
         } else {
             # No provider found — prompt to register one
             Write-Warning "No SSO provider registered for [$Service-$Environment]."
-            $register = Read-Host "Would you like to register an SSO provider for [$Service-$Environment]? (Y/N)"
+            $register = Read-Host "Would you like to register an SSO provider? (Y/N)"
             if ($register -ne 'Y') {
-                throw "SSO provider is required. Register one via Register-CustomService -SSOProvider or supply inline."
+                throw "SSO provider is required. Register one via Register-CustomService -SSOProvider."
             }
 
             Write-Host "Supported providers: GCloud, AzureCLI" -ForegroundColor Cyan
@@ -227,7 +194,7 @@
             if ($global:ServiceRegistry.ContainsKey($Service) -and
                 $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
                 $global:ServiceRegistry[$Service][$Environment].SSOProvider = $provider
-                Write-Verbose "Registered SSO provider [$provider] for [$Service-$Environment] in service registry."
+                Write-Verbose "Registered SSO provider [$provider] for [$Service-$Environment]."
             } else {
                 Write-Warning "Service [$Service-$Environment] is not in the registry. Provider registered for this session only."
             }
@@ -243,7 +210,6 @@
         $key         = New-ServiceKey -Service $Service -Environment $Environment
         $secureToken = ConvertTo-SecureString -String $tokenValue -AsPlainText -Force
 
-        # Store token with expiry timestamp and provider — used for lazy refresh in Get-ServiceCredential
         $global:ServiceSSOTokens[$key] = @{
             Token     = $secureToken
             ExpiresAt = [DateTime]::UtcNow.AddMinutes(55)
@@ -255,11 +221,11 @@
     }
 
     # =========================================================================
-    # BASIC AUTH MODE — default when neither -UseToken nor -UseSSO is specified
+    # BASIC AUTH MODE — default
     # =========================================================================
 
     # Prompt interactively if no credential was supplied
-    if (-not $credSupplied) {
+    if (-not $PSBoundParameters.ContainsKey('Credential')) {
         Write-Verbose "No Credential supplied. Prompting for Basic Auth."
         $Credential = Invoke-CredentialPrompt -Service $Service -Environment $Environment
     }
@@ -270,7 +236,7 @@
     if ($isGlobal) {
         $key = New-ServiceKey -Global
         if ($global:ServiceCredentials.ContainsKey($key) -and -not $Force) {
-            $confirm = Read-Host "Global Basic credential already exists. Overwrite? (Y/N)"
+            $confirm = Read-Host "Global Basic Auth credential already exists. Overwrite? (Y/N)"
             if ($confirm -ne 'Y') { return }
         }
         $global:ServiceCredentials[$key] = $Credential
@@ -308,10 +274,10 @@
     if ($Service -and $Environment) {
         $key = New-ServiceKey -Service $Service -Environment $Environment
         if ($global:ServiceCredentials.ContainsKey($key) -and -not $Force) {
-            $confirm = Read-Host "Credential for [$key] already exists. Overwrite? (Y/N)"
+            $confirm = Read-Host "Credential for [$key] (Label: $Label) already exists. Overwrite? (Y/N)"
             if ($confirm -ne 'Y') { return }
         }
         $global:ServiceCredentials[$key] = $Credential
-        Write-Verbose "Stored Basic Auth credential for [$key]."
+        Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label]."
     }
 }
