@@ -167,9 +167,20 @@ function Resolve-VaultCredential {
 
         if (-not [string]::IsNullOrWhiteSpace($BaseUrl) -and -not [string]::IsNullOrWhiteSpace($Endpoint)) {
             try {
-                $b64      = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($encoded))
+                # Determine auth header type from key presence
+                $colonIdx  = $encoded.IndexOf(':')
+                $testKey   = if ($colonIdx -gt 0) { $encoded.Substring(0, $colonIdx) } else { '' }
+                $testSecret = $encoded.Substring($colonIdx + 1)
+
+                $authHeader = if ([string]::IsNullOrWhiteSpace($testKey)) {
+                    "Bearer ${testSecret}"
+                } else {
+                    $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${testKey}:${testSecret}"))
+                    "Basic $b64"
+                }
+
                 $testHdrs = @{
-                    Authorization  = "Basic $b64"
+                    Authorization  = $authHeader
                     Accept         = 'application/json'
                     'Content-Type' = 'application/json'
                 }
