@@ -48,10 +48,12 @@
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.3.0
-        Date        : 16-MAY-26
+        Version     : 2.5.0
+        Date        : 17-MAY-26
 
         CHANGE LOG
+        2.5.0 | 17MAY26 | No functional changes — -AuthType ValidateSet already consistent with
+                          new unified auth model. Version bumped for release consistency.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added SSO credential clearing support. Extended -AuthType ValidateSet to
                           include 'SSO'. Added SSO key removal from $global:ServiceSSOTokens in the
