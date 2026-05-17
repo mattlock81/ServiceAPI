@@ -108,10 +108,17 @@ function Invoke-APIRequest {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.5.0
+        Version     : 2.5.2
         Date        : 17-MAY-26
 
         CHANGE LOG
+        2.5.2 | 17MAY26 | Added direct BaseUrl + AuthType None execution path. Allows
+                          unauthenticated requests to dynamic or ad-hoc URIs without a
+                          registered service or Authorization header requirement.
+                          Updated Service-required error message accordingly.
+        2.5.1 | 17MAY26 | Added 'None' to -AuthType ValidateSet. AuthType None skips all
+                          credential resolution — suitable for unauthenticated local services.
+                          $useTokenOrSSO guard updated to include None, preventing 403 retry.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] and
                           -Label parameters. Auth mode selection is now explicit and tab-completed.
                           Explicit auth override mode guarded against AuthType Token and SSO.
@@ -152,7 +159,7 @@ function Invoke-APIRequest {
         [string]$Endpoint,
 
         # Authentication type — tab-completed, explicit, unambiguous.
-        [ValidateSet('Basic', 'Token', 'SSO')]
+        [ValidateSet('Basic', 'Token', 'SSO', 'None')]
         [string]$AuthType = 'Basic',
 
         # Vault credential label — applies to Basic and Token. Defaults to 'default'.
@@ -169,7 +176,7 @@ function Invoke-APIRequest {
         [switch]$Silent
     )
 
-    $useTokenOrSSO = $AuthType -in @('Token', 'SSO')
+    $useTokenOrSSO = $AuthType -in @('Token', 'SSO', 'None')
 
     try {
         $isExplicitAuthOverride = $false
@@ -247,10 +254,18 @@ function Invoke-APIRequest {
             $mergedHeaders   = New-StandardHeaders
             $overrideHeaders.Keys | ForEach-Object { $mergedHeaders[$_] = $overrideHeaders[$_] }
 
+        } elseif ($AuthType -eq 'None' -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+            # AuthType None with direct BaseUrl — no service registration or credential resolution required
+            $resolvedBaseUrl = $BaseUrl
+            $mergedHeaders   = New-StandardHeaders
+            if ($Headers -and $Headers -is [System.Collections.IDictionary]) {
+                $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] }
+            }
+
         } else {
             # Config-driven mode
             if ([string]::IsNullOrWhiteSpace($Service)) {
-                throw "Service is required unless you supply BaseUrl and Headers.Authorization for explicit auth override."
+                throw "Service is required unless you supply BaseUrl and Headers.Authorization for explicit auth override, or BaseUrl with -AuthType None."
             }
 
             $configParams = @{

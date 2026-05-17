@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.1.1  
+**Version**: 2.5.2  
 **Author**: Matthew Sillett  
 **Organisation**: Australian Signals Directorate
 
@@ -50,12 +50,10 @@ Register-CustomService -ServiceName myapi -BaseUrl 'https://api.example.com'
 
 ## Predefined Services
 
-- **Jira** (QA/PROD)
-- **Confluence** (QA/PROD)
-- **Bitbucket** (QA/PROD)
-- **Crowd** (QA/PROD)
-- **Assets** (QA/PROD)
 - **OPNsense** (PROD)
+- **Cloudflare** (PROD)
+- **Google** (PROD — SSO via GCloud)
+- **Razer Chroma** (PROD — AuthType None, localhost)
 
 ---
 
@@ -166,6 +164,14 @@ ServiceAPI/
 
 | Version | Date    | Changes |
 |---------|---------|---------|
-| 2.1.1   | 28MAR26 | Restored Debug-Error based handled-error reporting with graceful fallback when SysCommon is unavailable. Added centralized Write-ServiceApiHandledError helper. Preserved Silent behavior while suppressing handled-error output. Polished fallback handled-error message formatting. |
-| 2.1.0   | 28MAR26 | Added explicit Authorization header override support in Invoke-APIRequest. Enforced token-only credential resolution when UseToken is specified. Updated Set-ServiceCredential to accept plain string or SecureString tokens and normalize Bearer-prefixed input. Updated Get-ServiceConfig to honor registered DefaultHeaders and skip credential lookup when DefaultHeaders already provides Authorization. |
-| 2.0.0   | 27JAN26 | Renamed from AtlassianAPI. Fixed GET Content-Type issue. Streamlined. |
+| 2.5.2   | 17MAY26 | Added direct BaseUrl + AuthType None execution path in Invoke-APIRequest. Unauthenticated requests to dynamic or ad-hoc URIs no longer require a registered service or Authorization header. Updated Service-required error message accordingly. |
+| 2.5.1   | 17MAY26 | Added 'None' to -AuthType ValidateSet across Invoke-APIRequest and Get-ServiceConfig. AuthType None skips all credential resolution — suitable for unauthenticated local services and listeners. $useTokenOrSSO guard updated to include None, preventing 403 retry on unauthenticated calls. |
+| 2.5.0   | 17MAY26 | Replaced -UseToken and -UseSSO switches with unified -AuthType [ValidateSet('Basic','Token','SSO')] parameter across all public functions. Added -Label parameter for named vault credential retrieval. Auth mode selection is now explicit and tab-completed. 403 retry block updated to check AuthType. Razer Chroma registered as prod service. |
+| 2.4.4   | 17MAY26 | Added -SessionOnly and -Endpoint pass-through to Get-ServiceCredential from Get-ServiceConfig. |
+| 2.4.3   | 17MAY26 | Australian/British English spelling applied throughout all functions and documentation. |
+| 2.4.0   | 17MAY26 | Added SSO credential resolution pass-through in Get-ServiceConfig and Get-ServiceCredential. |
+| 2.3.0   | 16MAY26 | Added [ArgumentCompleter] on -Service across public functions for tab completion from live registry. Added inline unregistered service registration prompt in Invoke-APIRequest. |
+| 2.2.0   | 16MAY26 | Added -UseSSO parameter. Changed -UseToken from [switch] to [string]. Explicit auth override mode guarded against -UseToken and -UseSSO. |
+| 2.1.1   | 28MAR26 | Restored Debug-Error based handled-error reporting with graceful fallback when SysCommon is unavailable. Added centralised Write-ServiceApiHandledError private function. Preserved -Silent behaviour. |
+| 2.1.0   | 28MAR26 | Added explicit Authorization header override support in Invoke-APIRequest. Updated Get-ServiceConfig to honour registered DefaultHeaders and skip credential lookup when Authorization is already supplied. |
+| 2.0.0   | 27JAN26 | Renamed from AtlassianAPI. Refactored to use Get-ServiceConfig and Get-ServiceCredential. Fixed GET Content-Type issue. |
