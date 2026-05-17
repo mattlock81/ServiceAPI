@@ -214,13 +214,24 @@ function Get-ServiceCredential {
             $resolved = Resolve-VaultCredential @vaultParams
 
             if ($null -eq $resolved) {
-                # User cancelled — abort
                 throw "Credential resolution cancelled for [$key]."
             }
 
-            # Resolved is "key:secret" plain string — Base64 encode into Basic Auth header
-            $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($resolved))
-            $headers['Authorization'] = "Basic $b64"
+            # Split resolved "key:secret" string on first colon only
+            $colonIndex = $resolved.IndexOf(':')
+            $credKey    = if ($colonIndex -gt 0) { $resolved.Substring(0, $colonIndex) } else { '' }
+            $credSecret = $resolved.Substring($colonIndex + 1)
+
+            if ([string]::IsNullOrWhiteSpace($credKey)) {
+                # No key component — Bearer token
+                $headers['Authorization'] = "Bearer ${credSecret}"
+            } else {
+                # Key and secret present — Basic Auth
+                $b64 = [Convert]::ToBase64String(
+                    [Text.Encoding]::ASCII.GetBytes("${credKey}:${credSecret}")
+                )
+                $headers['Authorization'] = "Basic $b64"
+            }
             return $headers
         }
 
