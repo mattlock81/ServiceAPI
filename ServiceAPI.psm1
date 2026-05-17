@@ -29,6 +29,19 @@ if (-not $script:ServiceApiHasDebugError) {
 }
 
 # ==============================
+# Phase 0.5: Detect SecretManagement
+# ==============================
+# Detect Microsoft.PowerShell.SecretManagement once at import time.
+# When available, vault-based credential resolution is activated automatically.
+# All vault logic is bypassed silently when the module is not present.
+$script:ServiceApiHasSecretManagement = $null -ne (Get-Command -Name Get-Secret -ErrorAction SilentlyContinue)
+if ($script:ServiceApiHasSecretManagement) {
+    Write-Verbose "ServiceAPI: SecretManagement detected — vault credential resolution enabled."
+} else {
+    Write-Verbose "ServiceAPI: SecretManagement not detected — vault credential resolution disabled."
+}
+
+# ==============================
 # Phase 1: Define Module Paths
 # ==============================
 $script:ModuleRoot          = $PSScriptRoot
@@ -84,6 +97,18 @@ $global:ServiceTokens       = @{}
 $global:ServiceSSOTokens    = @{}
 $global:ServiceRegistry     = @{}
 $global:RegisteredServices  = @()
+$global:ServiceApiVaultIndex = @{}
+
+# ==============================
+# Phase 4.5: Initialise Vault Index
+# ==============================
+# Only runs when SecretManagement is detected. Creates credential-index.json if absent
+# and loads the index into $global:ServiceApiVaultIndex for use during credential resolution.
+if ($script:ServiceApiHasSecretManagement) {
+    Initialize-VaultIndex
+    $global:ServiceApiVaultIndex = Read-VaultIndex
+    Write-Verbose "ServiceAPI: Vault index loaded ($($global:ServiceApiVaultIndex.Count) service key(s))."
+}
 
 # ==============================
 # Phase 5: Load Service Registry from Config
@@ -123,8 +148,8 @@ Write-Verbose "ServiceAPI: Loaded $($global:RegisteredServices.Count) service(s)
 # ==============================
 Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
     Remove-Variable -Name ServiceCredentials, ServiceTokens, ServiceSSOTokens, `
-                         ServiceRegistry, RegisteredServices `
+                         ServiceRegistry, RegisteredServices, ServiceApiVaultIndex `
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.3.0)"
+Write-Verbose "ServiceAPI module loaded (v2.4.0)"

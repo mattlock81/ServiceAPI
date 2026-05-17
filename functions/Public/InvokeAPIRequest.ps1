@@ -98,10 +98,12 @@ function Invoke-APIRequest {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.3.0
-        Date        : 16-MAY-26
+        Version     : 2.4.0
+        Date        : 17-MAY-26
 
         CHANGE LOG
+        2.4.0 | 17MAY26 | Added -SessionOnly switch for vault bypass. Endpoint and BaseUrl passed
+                          through to Get-ServiceConfig for vault test call validation.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for live tab completion from registry.
                           Added [ArgumentCompleter] on -UseSSO for provider name completion.
                           Added inline unregistered service registration prompt with session/permanent
@@ -178,6 +180,9 @@ function Invoke-APIRequest {
         })]
         [AllowNull()][AllowEmptyString()]
         [object]$UseSSO,
+
+        # -SessionOnly bypasses vault lookup and storage for token-mode requests.
+        [switch]$SessionOnly,
 
         [switch]$Silent
     )
@@ -276,6 +281,9 @@ function Invoke-APIRequest {
 
             if ($BaseUrl) { $configParams['BaseUrl'] = $BaseUrl }
 
+            # Pass Endpoint for vault test call validation in Get-ServiceCredential
+            if ($Endpoint) { $configParams['Endpoint'] = $Endpoint }
+
             # Pass auth mode parameters through to Get-ServiceConfig
             if ($useSSOMode) {
                 $configParams['UseSSO'] = if (-not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
@@ -285,6 +293,7 @@ function Invoke-APIRequest {
                 $configParams['UseToken'] = if (-not [string]::IsNullOrWhiteSpace([string]$UseToken)) {
                     [string]$UseToken
                 } else { $null }
+                if ($SessionOnly) { $configParams['SessionOnly'] = $true }
             }
 
             $config = Get-ServiceConfig @configParams
