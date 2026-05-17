@@ -98,9 +98,8 @@ function Get-ServiceConfig {
         [AllowEmptyString()]
         [string]$UseToken = 'default',
 
-        # -UseSSO accepts an optional inline provider name. Presence activates SSO mode.
-        [AllowEmptyString()]
-        [string]$UseSSO = '',
+        # -UseSSO activates SSO credential resolution. Provider resolved from service registry.
+        [switch]$UseSSO,
 
         # -SessionOnly bypasses vault lookup and storage — passed through to Get-ServiceCredential.
         [switch]$SessionOnly,
@@ -161,12 +160,7 @@ function Get-ServiceConfig {
             }
 
             if ($useSSOMode) {
-                # Pass UseSSO — with inline provider value if supplied
-                if (-not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
-                    $credParams['UseSSO'] = [string]$UseSSO
-                } else {
-                    $credParams['UseSSO'] = $null
-                }
+                $credParams['UseSSO'] = $true
             } elseif ($useTokenMode) {
                 # Pass UseToken — with inline token value if supplied
                 if (-not [string]::IsNullOrWhiteSpace([string]$UseToken)) {

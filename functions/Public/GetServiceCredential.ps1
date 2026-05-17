@@ -118,9 +118,8 @@ function Get-ServiceCredential {
         [AllowEmptyString()]
         [string]$UseToken = 'default',
 
-        # -UseSSO accepts an optional inline provider name. Presence alone activates SSO mode.
-        [AllowEmptyString()]
-        [string]$UseSSO = '',
+        # -UseSSO activates SSO credential resolution. Provider resolved from service registry.
+        [switch]$UseSSO,
 
         # -SessionOnly bypasses vault lookup and storage — session token store only.
         [switch]$SessionOnly,
@@ -147,6 +146,18 @@ function Get-ServiceCredential {
 
         $key = New-ServiceKey -Service $Service -Environment $Environment
 
+        # Resolve provider from service registry — caller never needs to supply it
+        $ssoProvider = $null
+        if ($global:ServiceRegistry.ContainsKey($Service) -and
+            $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
+            $global:ServiceRegistry[$Service][$Environment].SSOProvider) {
+            $ssoProvider = $global:ServiceRegistry[$Service][$Environment].SSOProvider
+        }
+
+        if (-not $ssoProvider) {
+            throw "No SSO provider registered for [$Service-$Environment]. Register one via Register-CustomService -SSOProvider."
+        }
+
         if ($global:ServiceSSOTokens.ContainsKey($key)) {
             $entry = $global:ServiceSSOTokens[$key]
 
@@ -164,18 +175,13 @@ function Get-ServiceCredential {
             }
 
             $token = ConvertSecureStringToPlainText -SecureString $entry.Token
-            $headers['Authorization'] = "Bearer $token"
+            $headers['Authorization'] = "Bearer ${token}"
             return $headers
         }
 
-        # No stored SSO token — delegate to Set-ServiceCredential
+        # No stored SSO token — delegate to Set-ServiceCredential with resolved provider
         Write-Verbose "No SSO token found for [$key]. Delegating to Set-ServiceCredential."
-
-        if (-not [string]::IsNullOrWhiteSpace([string]$UseSSO)) {
-            Set-ServiceCredential -Service $Service -Environment $Environment -UseSSO ([string]$UseSSO) -Force
-        } else {
-            Set-ServiceCredential -Service $Service -Environment $Environment -UseSSO -Force
-        }
+        Set-ServiceCredential -Service $Service -Environment $Environment -UseSSO $ssoProvider -Force
 
         if (-not $global:ServiceSSOTokens.ContainsKey($key)) {
             throw "SSO token was not stored for [$key] after acquisition. Aborting request."
