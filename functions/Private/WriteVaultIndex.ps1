@@ -4,9 +4,10 @@ function Write-VaultIndex {
         Adds a credential label to the vault index for a service-environment key.
 
     .DESCRIPTION
-        Reads the current credential-index.json, adds the supplied label to the array
-        for the specified service-environment key if not already present, then writes
-        the result back to disk. Updates $global:ServiceApiVaultIndex in memory.
+        Reads the current credential-index.json from the user's local AppData directory
+        ($env:LOCALAPPDATA\ServiceAPI\), adds the supplied label to the array for the
+        specified service-environment key if not already present, then writes the result
+        back to disk. Updates $global:ServiceApiVaultIndex in memory.
 
         Called by Resolve-VaultCredential after a credential is successfully stored
         in the vault.
@@ -20,10 +21,12 @@ function Write-VaultIndex {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 1.0.0
+        Version     : 1.1.0
         Date        : 17-MAY-26
 
         CHANGE LOG
+        1.1.0 | 17MAY26 | Updated path from module config\ directory to
+                          $env:LOCALAPPDATA\ServiceAPI\ via $script:ServiceApiVaultIndexPath.
         1.0.0 | 17MAY26 | Initial version.
     #>
 
@@ -33,7 +36,13 @@ function Write-VaultIndex {
         [Parameter(Mandatory)][string]$Label
     )
 
-    $indexPath = Join-Path -Path $script:ModuleRoot -ChildPath 'config\credential-index.json'
+    $indexDir  = $script:ServiceApiVaultIndexPath
+    $indexPath = Join-Path -Path $indexDir -ChildPath 'credential-index.json'
+
+    # Ensure directory exists
+    if (-not (Test-Path -Path $indexDir -PathType Container)) {
+        New-Item -Path $indexDir -ItemType Directory -Force | Out-Null
+    }
 
     # Read current index
     $current = Read-VaultIndex
@@ -51,7 +60,7 @@ function Write-VaultIndex {
     try {
         $current | ConvertTo-Json -Depth 3 |
             Set-Content -LiteralPath $indexPath -Encoding UTF8 -Force
-        Write-Verbose "Vault index updated: [$ServiceKey] → [$Label]"
+        Write-Verbose "ServiceAPI: Vault index updated: [$ServiceKey] → [$Label]"
     } catch {
         Write-Warning "ServiceAPI: Failed to write credential-index.json — $_"
     }

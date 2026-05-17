@@ -4,26 +4,30 @@ function Read-VaultIndex {
         Reads the vault credential index from credential-index.json.
 
     .DESCRIPTION
-        Reads credential-index.json from the module config directory and returns a hashtable
-        mapping service-environment keys to arrays of stored credential labels.
+        Reads credential-index.json from the user's local AppData directory
+        ($env:LOCALAPPDATA\ServiceAPI\) and returns a hashtable mapping
+        service-environment keys to arrays of stored credential labels.
 
-        Returns an empty hashtable if the file is absent or empty. Never throws — vault index
-        read failures are non-fatal; the module falls back to interactive prompts.
+        Returns an empty hashtable if the file is absent or empty. Never throws —
+        vault index read failures are non-fatal; the module falls back to interactive
+        prompts.
 
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 1.0.0
+        Version     : 1.1.0
         Date        : 17-MAY-26
 
         CHANGE LOG
+        1.1.0 | 17MAY26 | Updated path from module config\ directory to
+                          $env:LOCALAPPDATA\ServiceAPI\ via $script:ServiceApiVaultIndexPath.
         1.0.0 | 17MAY26 | Initial version.
     #>
 
     [CmdletBinding()]
     param()
 
-    $indexPath = Join-Path -Path $script:ModuleRoot -ChildPath 'config\credential-index.json'
+    $indexPath = Join-Path -Path $script:ServiceApiVaultIndexPath -ChildPath 'credential-index.json'
 
     if (-not (Test-Path -Path $indexPath -PathType Leaf)) { return @{} }
 

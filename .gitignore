@@ -1,6 +1,3 @@
 # ServiceAPI — excluded files
-# services.json contains environment-specific service URLs and SSO provider associations.
-# credential-index.json tracks vault credential labels per service — never committed.
-# Both are auto-created on first module load and must not be committed to version control.
-config/services.json
-config/credential-index.json
+# User configuration is stored outside the module directory in AppData and LocalAppData.
+# No user data files exist within the module source tree.

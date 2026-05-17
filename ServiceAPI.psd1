@@ -1,11 +1,11 @@
 ﻿@{
     RootModule        = 'ServiceAPI.psm1'
-    ModuleVersion     = '2.4.4'
+    ModuleVersion     = '2.5.0'
     GUID              = 'a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'
     Author            = 'Matthew Sillett'
     CompanyName       = 'Australian Signals Directorate'
     Copyright         = '© 2026 Matthew Sillett. All rights reserved.'
-    Description       = 'REST API framework for PowerShell supporting Basic Auth, static Bearer token, OAuth SSO, and SecretManagement vault-integrated credential resolution. Predefined support for Atlassian Data Center, OPNsense, and Google Workspace APIs. Service registry driven by config\services.json with auto-creation on first load.'
+    Description       = 'REST API framework for PowerShell supporting Basic Auth, static Bearer token, OAuth SSO, and SecretManagement vault-integrated credential resolution. Predefined support for Atlassian Data Center, OPNsense, and Google Workspace APIs. User configuration stored in AppData and LocalAppData — module updates never overwrite user data.'
     PowerShellVersion = '5.1'
 
     FunctionsToExport = '*'
@@ -17,6 +17,13 @@
         PSData = @{
             Tags = @('API', 'REST', 'Atlassian', 'Jira', 'Confluence', 'OPNsense', 'Google', 'OAuth', 'SSO', 'SecretManagement', 'Vault', 'DevOps', 'Automation')
             ReleaseNotes = @'
+2.5.0 | 17MAY26 | Moved user configuration out of module directory so module updates never
+                  overwrite user data. services.json moved to $env:APPDATA\ServiceAPI\ —
+                  roams with user profile across machines. credential-index.json moved to
+                  $env:LOCALAPPDATA\ServiceAPI\ — machine-local, consistent with vault store.
+                  Module config\ directory removed from repo. $script:ServiceApiConfigPath and
+                  $script:ServiceApiVaultIndexPath added to psm1 Phase 1. All six config
+                  private functions updated to use new paths.
 2.4.4 | 17MAY26 | Extended SecretManagement vault integration to Basic Auth. Resolve-VaultCredential
                   extended with -AuthType parameter (Token/Basic). Basic Auth path stores and
                   retrieves PSCredential objects natively. Get-ServiceCredential Priority 2 now

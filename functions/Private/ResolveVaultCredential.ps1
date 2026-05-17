@@ -125,14 +125,33 @@ function Resolve-VaultCredential {
             Write-Verbose "Vault label [$Label] found for [$serviceKey]. Retrieving..."
 
             try {
+                $secret = Get-Secret -Name $vaultName -ErrorAction Stop
+
                 if ($isBasic) {
-                    $cred = Get-Secret -Name $vaultName -ErrorAction Stop
-                    Write-Verbose "Retrieved Basic Auth PSCredential [$vaultName]."
-                    return $cred
+                    # Basic path expects PSCredential — convert plain string if needed
+                    if ($secret -is [PSCredential]) {
+                        Write-Verbose "Retrieved Basic Auth PSCredential [$vaultName]."
+                        return $secret
+                    } else {
+                        $plain    = [string]$secret
+                        $colonIdx = $plain.IndexOf(':')
+                        $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
+                        $p        = $plain.Substring($colonIdx + 1)
+                        Write-Verbose "Retrieved plain string [$vaultName] — converted to PSCredential."
+                        return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
+                    }
                 } else {
-                    $raw = Get-Secret -Name $vaultName -AsPlainText -ErrorAction Stop
-                    Write-Verbose "Retrieved token secret [$vaultName]."
-                    return $raw
+                    # Token path expects plain string — convert PSCredential if needed
+                    if ($secret -is [PSCredential]) {
+                        $u   = $secret.UserName
+                        $p   = $secret.GetNetworkCredential().Password
+                        $raw = if ([string]::IsNullOrWhiteSpace($u)) { ":${p}" } else { "${u}:${p}" }
+                        Write-Verbose "Retrieved PSCredential [$vaultName] — converted to token string."
+                        return $raw
+                    } else {
+                        Write-Verbose "Retrieved token secret [$vaultName]."
+                        return [string]$secret
+                    }
                 }
             } catch {
                 Write-Warning "Failed to retrieve vault secret [$vaultName] — $_"
@@ -154,14 +173,28 @@ function Resolve-VaultCredential {
                 $selectedVault = "$Service-$selectedLabel-$Environment"
 
                 try {
+                    $secret = Get-Secret -Name $selectedVault -ErrorAction Stop
+
                     if ($isBasic) {
-                        $cred = Get-Secret -Name $selectedVault -ErrorAction Stop
-                        Write-Verbose "Retrieved Basic Auth PSCredential [$selectedVault]."
-                        return $cred
+                        if ($secret -is [PSCredential]) {
+                            Write-Verbose "Retrieved Basic Auth PSCredential [$selectedVault]."
+                            return $secret
+                        } else {
+                            $plain    = [string]$secret
+                            $colonIdx = $plain.IndexOf(':')
+                            $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
+                            $p        = $plain.Substring($colonIdx + 1)
+                            return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
+                        }
                     } else {
-                        $raw = Get-Secret -Name $selectedVault -AsPlainText -ErrorAction Stop
-                        Write-Verbose "Retrieved token secret [$selectedVault]."
-                        return $raw
+                        if ($secret -is [PSCredential]) {
+                            $u   = $secret.UserName
+                            $p   = $secret.GetNetworkCredential().Password
+                            $raw = if ([string]::IsNullOrWhiteSpace($u)) { ":${p}" } else { "${u}:${p}" }
+                            return $raw
+                        } else {
+                            return [string]$secret
+                        }
                     }
                 } catch {
                     Write-Warning "Failed to retrieve vault secret [$selectedVault] — $_"

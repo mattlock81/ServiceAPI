@@ -53,10 +53,16 @@ if (Get-Module -Name Microsoft.PowerShell.SecretManagement -ListAvailable) {
 # ==============================
 # Phase 1: Define Module Paths
 # ==============================
-$script:ModuleRoot          = $PSScriptRoot
-$script:FunctionsPath       = Join-Path -Path $script:ModuleRoot -ChildPath 'Functions'
+$script:ModuleRoot           = $PSScriptRoot
+$script:FunctionsPath        = Join-Path -Path $script:ModuleRoot -ChildPath 'Functions'
 $script:PrivateFunctionsPath = Join-Path -Path $script:FunctionsPath -ChildPath 'Private'
 $script:PublicFunctionsPath  = Join-Path -Path $script:FunctionsPath -ChildPath 'Public'
+
+# User data paths — outside the module directory so updates never overwrite user config
+# services.json roams with the user profile across machines where the module is installed
+$script:ServiceApiConfigPath     = Join-Path -Path $env:APPDATA -ChildPath 'ServiceAPI'
+# credential-index.json is machine-local — consistent with the SecretManagement vault store
+$script:ServiceApiVaultIndexPath = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'ServiceAPI'
 
 if (-not (Test-Path -Path $script:FunctionsPath -PathType Container)) {
     Write-Error "Functions directory not found: $script:FunctionsPath"
@@ -161,4 +167,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.4.0)"
+Write-Verbose "ServiceAPI module loaded (v2.5.0)"
