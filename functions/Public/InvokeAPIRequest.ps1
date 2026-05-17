@@ -149,9 +149,10 @@ function Invoke-APIRequest {
         [object]$Headers,
         [string]$BaseUrl,
 
-        # -UseToken accepts an optional inline token value. Presence activates token mode.
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseToken,
+        # -UseToken accepts an optional vault label or raw token value.
+        # Defaults to 'default' when specified without a value — resolves the default vault label.
+        [AllowEmptyString()]
+        [string]$UseToken = 'default',
 
         # -UseSSO accepts an optional inline provider name. Presence activates SSO mode.
         # Tab completion offers known providers, with the service default surfaced first.
@@ -178,8 +179,8 @@ function Invoke-APIRequest {
                     )
                 }
         })]
-        [AllowNull()][AllowEmptyString()]
-        [object]$UseSSO,
+        [AllowEmptyString()]
+        [string]$UseSSO = '',
 
         # -SessionOnly bypasses vault lookup and storage for token-mode requests.
         [switch]$SessionOnly,

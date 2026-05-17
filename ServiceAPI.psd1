@@ -1,6 +1,6 @@
 @{
     RootModule        = 'ServiceAPI.psm1'
-    ModuleVersion     = '2.4.0'
+    ModuleVersion     = '2.4.1'
     GUID              = 'a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'
     Author            = 'Matthew Sillett'
     CompanyName       = 'Australian Signals Directorate'
@@ -17,6 +17,11 @@
         PSData = @{
             Tags = @('API', 'REST', 'Atlassian', 'Jira', 'Confluence', 'OPNsense', 'Google', 'OAuth', 'SSO', 'SecretManagement', 'Vault', 'DevOps', 'Automation')
             ReleaseNotes = @'
+2.4.1 | 17MAY26 | Fixed -UseToken and -UseSSO parameter types from [object] to [string] with
+                  appropriate defaults for PowerShell 7 compatibility. -UseToken defaults to
+                  'default' (vault label). -UseSSO defaults to empty string. SecretManagement
+                  detection updated to use Get-Module -ListAvailable and explicit Import-Module,
+                  mirroring SysCommon detection pattern.
 2.4.0 | 17MAY26 | Added optional SecretManagement vault integration. Detected automatically at
                   module import — all vault logic is bypassed silently when the module is absent.
                   When detected, token-mode (-UseToken) requests resolve credentials from the vault
