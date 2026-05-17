@@ -70,10 +70,13 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.5.0
+        Version     : 2.5.1
         Date        : 17-MAY-26
 
         CHANGE LOG
+        2.5.1 | 17MAY26 | Fixed Token mode vault write — Set-Secret and Write-VaultIndex
+                          now called from Set-ServiceCredential Token path. Previously tokens
+                          were written to session store only and lost between sessions.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] parameter.
                           Added -Label parameter for named vault credential storage. Auth mode
                           selection is now explicit and tab-completed. -SessionOnly not applicable
@@ -150,8 +153,22 @@ function Set-ServiceCredential {
             if ($confirm -ne 'Y') { return }
         }
 
+        # Always write to in-memory store for this session
         $global:ServiceTokens[$key] = $secureToken
-        Write-Verbose "Stored token for [$key] under label [$Label]."
+        Write-Verbose "Stored token for [$key] under label [$Label] in session store."
+
+        # Write to vault when SecretManagement is available
+        if ($script:ServiceApiHasSecretManagement) {
+            $vaultName = "$Service-$Label-$Environment"
+            try {
+                Set-Secret -Name $vaultName -Secret $tokenValue -Vault LocalStore -ErrorAction Stop
+                Write-VaultIndex -ServiceKey $key -Label $Label
+                Write-Verbose "Stored token for [$key] under label [$Label] in vault as [$vaultName]."
+            } catch {
+                Write-Warning "Failed to store token in vault — $_. Token retained in session store only."
+            }
+        }
+
         return
     }
 
