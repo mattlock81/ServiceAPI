@@ -67,7 +67,6 @@ function Register-CustomService {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 2.3.0
         Date        : 16-MAY-26
 

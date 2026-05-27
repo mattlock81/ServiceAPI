@@ -28,7 +28,6 @@ function Test-IsTokenValue {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 1.0.0
         Date        : 17-MAY-26
 

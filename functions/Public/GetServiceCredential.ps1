@@ -74,7 +74,6 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 2.5.0
         Date        : 17-MAY-26
 

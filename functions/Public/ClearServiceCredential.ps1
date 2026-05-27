@@ -1,4 +1,4 @@
-﻿function Clear-ServiceCredential {
+function Clear-ServiceCredential {
     <#
     .SYNOPSIS
         Clears stored Basic Auth, Token, or SSO credentials for an API service/environment pair.
@@ -47,7 +47,6 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 2.5.0
         Date        : 17-MAY-26
 

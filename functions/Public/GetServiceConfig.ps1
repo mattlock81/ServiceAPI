@@ -60,7 +60,6 @@ function Get-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 2.5.1
         Date        : 17-MAY-26
 

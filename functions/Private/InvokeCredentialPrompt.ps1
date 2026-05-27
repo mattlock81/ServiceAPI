@@ -23,7 +23,6 @@ function Invoke-CredentialPrompt {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 1.0.0
         Date        : 27-JAN-26
 

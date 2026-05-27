@@ -3,10 +3,9 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.3.0
+# Version: 2.5.5
 # Author: Matthew Sillett
-# Organisation: Australian Signals Directorate
-# Date: 2026-05-16
+# Date: 2026-05-18
 
 # ==============================
 # Phase 0: Dependency Import
@@ -167,4 +166,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.5.0)"
+Write-Verbose "ServiceAPI module loaded (v2.5.5)"
