@@ -71,7 +71,6 @@ function Resolve-VaultCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 1.1.0
         Date        : 17-MAY-26
 

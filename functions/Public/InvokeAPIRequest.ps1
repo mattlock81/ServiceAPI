@@ -107,7 +107,6 @@ function Invoke-APIRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Organisation: Australian Signals Directorate
         Version     : 2.5.2
         Date        : 17-MAY-26
 
