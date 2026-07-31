@@ -71,10 +71,13 @@ function Resolve-VaultCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.0
-        Date        : 17-MAY-26
+        Version     : 1.2.0
+        Date        : 31-JUL-26
 
         CHANGE LOG
+        1.2.0 | 31JUL26 | Basic Auth conversion logic (single-label and multi-label paths)
+                          now calls the shared Convert-VaultSecretToCredential helper,
+                          removing duplicated PSCredential normalisation code.
         1.1.0 | 17MAY26 | Added -AuthType parameter (Token/Basic). Basic Auth path stores and
                           retrieves PSCredential objects natively via SecretManagement. Token
                           path unchanged — stores/retrieves plain "key:secret" strings. Both
@@ -127,27 +130,9 @@ function Resolve-VaultCredential {
                 $secret = Get-Secret -Name $vaultName -ErrorAction Stop
 
                 if ($isBasic) {
-                    # Basic path expects PSCredential — convert SecureString or plain string if needed
-                    if ($secret -is [PSCredential]) {
-                        Write-Verbose "Retrieved Basic Auth PSCredential [$vaultName]."
-                        return $secret
-                    } elseif ($secret -is [System.Security.SecureString]) {
-                        $plain    = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-                        )
-                        $colonIdx = $plain.IndexOf(':')
-                        $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
-                        $p        = $plain.Substring($colonIdx + 1)
-                        Write-Verbose "Retrieved SecureString [$vaultName] — converted to PSCredential."
-                        return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
-                    } else {
-                        $plain    = [string]$secret
-                        $colonIdx = $plain.IndexOf(':')
-                        $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
-                        $p        = $plain.Substring($colonIdx + 1)
-                        Write-Verbose "Retrieved plain string [$vaultName] — converted to PSCredential."
-                        return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
-                    }
+                    # Basic path expects PSCredential — normalise via shared helper
+                    Write-Verbose "Retrieved vault secret [$vaultName] — normalising to PSCredential."
+                    return Convert-VaultSecretToCredential -Secret $secret
                 } else {
                     # Token path expects plain string — convert PSCredential or SecureString if needed
                     if ($secret -is [PSCredential]) {
@@ -190,24 +175,8 @@ function Resolve-VaultCredential {
                     $secret = Get-Secret -Name $selectedVault -ErrorAction Stop
 
                     if ($isBasic) {
-                        if ($secret -is [PSCredential]) {
-                            Write-Verbose "Retrieved Basic Auth PSCredential [$selectedVault]."
-                            return $secret
-                        } elseif ($secret -is [System.Security.SecureString]) {
-                            $plain    = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-                            )
-                            $colonIdx = $plain.IndexOf(':')
-                            $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
-                            $p        = $plain.Substring($colonIdx + 1)
-                            return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
-                        } else {
-                            $plain    = [string]$secret
-                            $colonIdx = $plain.IndexOf(':')
-                            $u        = if ($colonIdx -gt 0) { $plain.Substring(0, $colonIdx) } else { '' }
-                            $p        = $plain.Substring($colonIdx + 1)
-                            return [PSCredential]::new($u, (ConvertTo-SecureString $p -AsPlainText -Force))
-                        }
+                        Write-Verbose "Retrieved vault secret [$selectedVault] — normalising to PSCredential."
+                        return Convert-VaultSecretToCredential -Secret $secret
                     } else {
                         if ($secret -is [PSCredential]) {
                             $u   = $secret.UserName
