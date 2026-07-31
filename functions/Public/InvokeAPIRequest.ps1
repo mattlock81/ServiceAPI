@@ -93,6 +93,10 @@ function Invoke-APIRequest {
         SSO request using the registered GCloud provider for google-prod.
 
     .EXAMPLE
+        Invoke-APIRequest -Service synology -AuthType QueryParam -Endpoint 'auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={user}&passwd={pass}&session=ServiceAPI&format=sid'
+        Vault-backed credential substituted into {user}/{pass} placeholders — no Authorization header sent.
+
+    .EXAMPLE
         Invoke-APIRequest -Service jira -Endpoint 'api/2/myself' -AuthType Basic -SessionOnly
         Basic Auth request bypassing vault — prompts interactively, session store only.
 
@@ -107,10 +111,16 @@ function Invoke-APIRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.5.2
-        Date        : 17-MAY-26
+        Version     : 2.6.0
+        Date        : 31-JUL-26
 
         CHANGE LOG
+        2.6.0 | 31JUL26 | Added 'QueryParam' AuthType. For services whose login endpoint
+                          expects credentials as query string parameters rather than an
+                          Authorization header (e.g. Synology DSM auth.cgi). Resolves the
+                          vault-backed credential via Get-ServiceCredential -AuthType
+                          QueryParam and substitutes {user}/{pass} placeholders in -Endpoint,
+                          URL-encoded. Vault-backed, so eligible for 403 retry like Basic.
         2.5.2 | 17MAY26 | Added direct BaseUrl + AuthType None execution path. Allows
                           unauthenticated requests to dynamic or ad-hoc URIs without a
                           registered service or Authorization header requirement.
@@ -158,7 +168,7 @@ function Invoke-APIRequest {
         [string]$Endpoint,
 
         # Authentication type — tab-completed, explicit, unambiguous.
-        [ValidateSet('Basic', 'Token', 'SSO', 'None')]
+        [ValidateSet('Basic', 'Token', 'SSO', 'None', 'QueryParam')]
         [string]$AuthType = 'Basic',
 
         # Vault credential label — applies to Basic and Token. Defaults to 'default'.
@@ -175,6 +185,8 @@ function Invoke-APIRequest {
         [switch]$Silent
     )
 
+    # QueryParam is vault-backed like Basic, so it is eligible for 403 retry.
+    # Token, SSO, and None are not.
     $useTokenOrSSO = $AuthType -in @('Token', 'SSO', 'None')
 
     try {
@@ -257,6 +269,43 @@ function Invoke-APIRequest {
             # AuthType None with direct BaseUrl — no service registration or credential resolution required
             $resolvedBaseUrl = $BaseUrl
             $mergedHeaders   = New-StandardHeaders
+            if ($Headers -and $Headers -is [System.Collections.IDictionary]) {
+                $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] }
+            }
+
+        } elseif ($AuthType -eq 'QueryParam') {
+            # QueryParam — credential delivered via {user}/{pass} placeholders in the
+            # endpoint string rather than an Authorization header. Requires a registered
+            # -Service (BaseUrl resolved from the registry, same as config-driven mode).
+            if ([string]::IsNullOrWhiteSpace($Service)) {
+                throw "AuthType QueryParam requires -Service to resolve the registered BaseUrl."
+            }
+
+            $configParams = @{ Service = $Service; Environment = $Environment }
+            if ($BaseUrl) { $configParams['BaseUrl'] = $BaseUrl }
+            $config = Get-ServiceConfig @configParams -AuthType None
+            if (-not $config) {
+                throw "Failed to resolve service configuration for [$Service] in [$Environment]."
+            }
+            $resolvedBaseUrl = $config.BaseUrl
+
+            $credParams = @{
+                Service     = $Service
+                AuthType    = 'QueryParam'
+                Label       = $Label
+                Environment = $Environment
+            }
+            if ($SessionOnly) { $credParams['SessionOnly'] = $true }
+            if ($Endpoint)    { $credParams['Endpoint']    = $Endpoint }
+            if ($BaseUrl)     { $credParams['BaseUrl']     = $BaseUrl }
+
+            $resolvedCred = Get-ServiceCredential @credParams
+
+            $Endpoint = $Endpoint `
+                -replace '\{user\}', [uri]::EscapeDataString($resolvedCred.UserName) `
+                -replace '\{pass\}', [uri]::EscapeDataString($resolvedCred.Password)
+
+            $mergedHeaders = New-StandardHeaders
             if ($Headers -and $Headers -is [System.Collections.IDictionary]) {
                 $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] }
             }

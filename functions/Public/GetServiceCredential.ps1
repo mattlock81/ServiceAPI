@@ -74,10 +74,15 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.5.0
-        Date        : 17-MAY-26
+        Version     : 2.6.0
+        Date        : 31-JUL-26
 
         CHANGE LOG
+        2.6.0 | 31JUL26 | Added 'QueryParam' AuthType. Recurses internally via -AuthType
+                          Basic to reuse the full vault/fallback/prompt resolution chain,
+                          then decodes the result into a plain UserName/Password object
+                          for callers to substitute into query string placeholders. No
+                          Authorization header is set for this mode.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] parameter.
                           Added -Label parameter for named vault credential retrieval. Auth mode
                           selection is now explicit and tab-completed. Resolution logic updated
@@ -109,7 +114,7 @@ function Get-ServiceCredential {
         })]
         [string]$Service,
 
-        [ValidateSet('Basic', 'Token', 'SSO')]
+        [ValidateSet('Basic', 'Token', 'SSO', 'QueryParam')]
         [string]$AuthType = 'Basic',
 
         # Vault label — applies to Basic and Token auth types. Defaults to 'default'.
@@ -127,6 +132,39 @@ function Get-ServiceCredential {
 
     # Initialise standard headers
     $headers = New-StandardHeaders -Service $Service
+
+    # =========================================================================
+    # QUERYPARAM MODE — credential delivered via query string, not a header
+    # =========================================================================
+    # Reuses the Basic Auth resolution path entirely (vault, four-tier fallback,
+    # interactive prompt) by recursing with -AuthType Basic, then decodes the
+    # resulting Authorization header back into a plain username/password object.
+    # No Authorization header is set — callers using QueryParam substitute the
+    # returned values directly into the endpoint string.
+    if ($AuthType -eq 'QueryParam') {
+
+        $basicParams = @{
+            Service     = $Service
+            AuthType    = 'Basic'
+            Label       = $Label
+            Environment = $Environment
+            SessionOnly = $SessionOnly
+        }
+        if ($Endpoint) { $basicParams['Endpoint'] = $Endpoint }
+        if ($BaseUrl)  { $basicParams['BaseUrl']  = $BaseUrl  }
+
+        $basicHeaders = Get-ServiceCredential @basicParams
+        $b64          = $basicHeaders['Authorization'] -replace '^Basic\s+', ''
+        $decoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
+        $colonIndex   = $decoded.IndexOf(':')
+        $userName     = if ($colonIndex -gt 0) { $decoded.Substring(0, $colonIndex) } else { '' }
+        $password     = $decoded.Substring($colonIndex + 1)
+
+        return [PSCustomObject]@{
+            UserName = $userName
+            Password = $password
+        }
+    }
 
     # =========================================================================
     # SSO MODE — short-lived OAuth Bearer token with lazy refresh
