@@ -23,7 +23,18 @@ function Set-ServiceCredential {
         configured for the service via Register-CustomService -SSOProvider. The provider
         is resolved from the service registry. SSO tokens are stored with an expiry
         timestamp and refreshed automatically when stale. Requires both -Service and
-        -Environment. Global SSO tokens are not supported.
+        -Environment. Global SSO tokens are not supported. Supported providers: GCloud,
+        AzureCLI, Aria.
+
+        The Aria provider is a special case within SSO mode: it sources its underlying
+        domain-account credential via Get-ServiceCredential -AuthType Basic (vault-backed,
+        same 'aria' service, label defaults to 'ssoidentity') rather than a CLI tool. If
+        no Basic credential is yet stored under that label, the underlying vault/prompt
+        flow triggers automatically and offers to store it — so the first SSO call for
+        Aria can also bootstrap the Basic credential in the same step. Domain is resolved
+        from the service registry's SSODomain field, falling back to the domain of a
+        domain-joined system when SSODomain is not set — non-domain-joined systems must
+        have SSODomain registered explicitly.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
@@ -31,7 +42,7 @@ function Set-ServiceCredential {
 
     .PARAMETER AuthType
         The authentication type to store. Accepted values: Basic, Token, SSO.
-        Defaults to Basic.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria.
 
     .PARAMETER Credential
         A PSCredential object for Basic Auth storage. If omitted, prompts interactively.
@@ -70,10 +81,16 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.5.1
-        Date        : 17-MAY-26
+        Version     : 2.6.0
+        Date        : 12-AUG-26
 
         CHANGE LOG
+        2.6.0 | 12AUG26 | Added Aria SSO provider support. SSO branch now sources the
+                          Aria domain-account credential via Get-ServiceCredential
+                          -AuthType Basic (label 'ssoidentity') and resolves domain from
+                          registry SSODomain or a domain-joined system, then dispatches
+                          to Invoke-SSOProviderToken -Provider Aria with -Credential,
+                          -Domain, and -BaseUrl. GCloud and AzureCLI paths unchanged.
         2.5.1 | 17MAY26 | Fixed Token mode vault write — Set-Secret and Write-VaultIndex
                           now called from Set-ServiceCredential Token path. Previously tokens
                           were written to session store only and lost between sessions.
@@ -218,7 +235,55 @@ function Set-ServiceCredential {
         }
 
         # Obtain token via provider dispatch
-        $tokenValue = Invoke-SSOProviderToken -Provider $provider
+        if ($provider -eq 'Aria') {
+
+            # Resolve the underlying domain-account credential via the existing Basic
+            # vault/fallback/prompt chain — reuses Get-ServiceCredential exactly as
+            # QueryParam mode does, rather than duplicating vault lookup logic here.
+            $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
+            $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
+            $ariaDecoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ariaB64))
+            $ariaColonIndex   = $ariaDecoded.IndexOf(':')
+            $ariaUserName     = if ($ariaColonIndex -gt 0) { $ariaDecoded.Substring(0, $ariaColonIndex) } else { '' }
+            $ariaPassword     = $ariaDecoded.Substring($ariaColonIndex + 1)
+            $ariaCredential   = [PSCredential]::new($ariaUserName, (ConvertTo-SecureString -String $ariaPassword -AsPlainText -Force))
+
+            # Resolve domain — registry SSODomain first, then domain-joined system fallback
+            $ariaDomain = $null
+            if ($global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
+                $global:ServiceRegistry[$Service][$Environment].SSODomain) {
+                $ariaDomain = $global:ServiceRegistry[$Service][$Environment].SSODomain
+            } else {
+                try {
+                    $sysInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+                    if ($sysInfo.PartOfDomain -and $sysInfo.Domain) {
+                        $ariaDomain = $sysInfo.Domain
+                        Write-Verbose "Resolved Aria domain [$ariaDomain] from domain-joined system."
+                    }
+                } catch {
+                    # Non-domain-joined or CIM unavailable — fall through to error below
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
+                throw "Could not resolve Aria domain for [$Service-$Environment]. System is not domain-joined and no SSODomain is registered. Register one via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
+            }
+
+            # Resolve BaseUrl from the registry — same source Get-ServiceConfig would use
+            $ariaBaseUrl = $null
+            if ($global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
+                $ariaBaseUrl = $global:ServiceRegistry[$Service][$Environment].BaseUrl
+            }
+            if ([string]::IsNullOrWhiteSpace($ariaBaseUrl)) {
+                throw "Could not resolve BaseUrl for [$Service-$Environment]. Register the service first."
+            }
+
+            $tokenValue = Invoke-SSOProviderToken -Provider $provider -Credential $ariaCredential -Domain $ariaDomain -BaseUrl $ariaBaseUrl
+
+        } else {
+            $tokenValue = Invoke-SSOProviderToken -Provider $provider
+        }
 
         if ([string]::IsNullOrWhiteSpace($tokenValue)) {
             throw "SSO provider [$provider] returned an empty token."

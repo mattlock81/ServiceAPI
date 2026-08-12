@@ -22,14 +22,19 @@ function Write-ServiceConfig {
         The base URL to persist for this service/environment.
 
     .PARAMETER SSOProvider
-        Optional. The SSO provider string to persist (e.g., GCloud, AzureCLI).
+        Optional. The SSO provider string to persist (e.g., GCloud, AzureCLI, Aria).
+
+    .PARAMETER SSODomain
+        Optional. The domain string to persist for the Aria SSO provider.
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.0
-        Date        : 17-MAY-26
+        Version     : 1.2.0
+        Date        : 12-AUG-26
 
         CHANGE LOG
+        1.2.0 | 12AUG26 | Added optional -SSODomain parameter, persisted to the
+                          services.json entry alongside SSOProvider when supplied.
         1.1.0 | 17MAY26 | Updated path from module config\ directory to
                           $env:APPDATA\ServiceAPI\ via $script:ServiceApiConfigPath.
         1.0.0 | 16MAY26 | Initial version. Handles merge-write to services.json for
@@ -41,7 +46,8 @@ function Write-ServiceConfig {
         [Parameter(Mandatory)][string]$ServiceName,
         [Parameter(Mandatory)][string]$Environment,
         [Parameter(Mandatory)][string]$BaseUrl,
-        [string]$SSOProvider
+        [string]$SSOProvider,
+        [string]$SSODomain
     )
 
     $configDir  = $script:ServiceApiConfigPath
@@ -65,6 +71,9 @@ function Write-ServiceConfig {
     $entry = @{ BaseUrl = $BaseUrl.TrimEnd('/') }
     if (-not [string]::IsNullOrWhiteSpace($SSOProvider)) {
         $entry['SSOProvider'] = $SSOProvider
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SSODomain)) {
+        $entry['SSODomain'] = $SSODomain
     }
 
     $current[$ServiceName][$Environment] = $entry
