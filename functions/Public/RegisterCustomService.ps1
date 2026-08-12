@@ -21,7 +21,7 @@ function Register-CustomService {
         When -Persistent is not specified, the registration is session-only and lost on module
         reload.
 
-        Supported SSO providers: GCloud, AzureCLI.
+        Supported SSO providers: GCloud, AzureCLI, Aria.
 
     .PARAMETER ServiceName
         The name to identify the service (e.g., custom-api, github, googleapi).
@@ -40,7 +40,13 @@ function Register-CustomService {
         Optional. Associates a default SSO provider with this service registration.
         When specified, -UseSSO calls against this service will use this provider for
         token acquisition and refresh without requiring the provider to be named on each call.
-        Accepted values: GCloud, AzureCLI.
+        Accepted values: GCloud, AzureCLI, Aria.
+
+    .PARAMETER SSODomain
+        Optional. Only meaningful when -SSOProvider is 'Aria'. The domain to submit
+        alongside the username during the Aria CSP token exchange. When omitted, the
+        domain of a domain-joined system is used automatically at request time — set this
+        explicitly for non-domain-joined systems (e.g. a personal dev machine).
 
     .PARAMETER Persistent
         When specified, writes the registration to config\services.json so it is restored
@@ -67,10 +73,14 @@ function Register-CustomService {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.3.0
-        Date        : 16-MAY-26
+        Version     : 2.4.0
+        Date        : 12-AUG-26
 
         CHANGE LOG
+        2.4.0 | 12AUG26 | Added 'Aria' to the -SSOProvider ValidateSet. Added optional
+                          -SSODomain parameter, stored in the in-memory registry entry
+                          and persisted to services.json via Write-ServiceConfig when
+                          -Persistent is specified.
         2.3.0 | 16MAY26 | Added -Persistent switch to write registrations to config\services.json.
                           Added [ArgumentCompleter] on -ServiceName for tab completion from live
                           registry. Persistent registrations are loaded on next module import.
@@ -106,8 +116,10 @@ function Register-CustomService {
             'Content-Type' = 'application/json'
         },
 
-        [ValidateSet('GCloud', 'AzureCLI')]
+        [ValidateSet('GCloud', 'AzureCLI', 'Aria')]
         [string]$SSOProvider,
+
+        [string]$SSODomain,
 
         [switch]$Persistent,
         [switch]$Force
@@ -140,6 +152,14 @@ function Register-CustomService {
         Write-Verbose "SSO provider [$SSOProvider] registered for [$ServiceName-$Environment]."
     }
 
+    if ($SSODomain) {
+        if ($SSOProvider -ne 'Aria') {
+            Write-Warning "-SSODomain is only used by the Aria SSO provider and will be stored but ignored for provider [$SSOProvider]."
+        }
+        $entry['SSODomain'] = $SSODomain
+        Write-Verbose "SSO domain [$SSODomain] registered for [$ServiceName-$Environment]."
+    }
+
     $global:ServiceRegistry[$ServiceName][$Environment] = $entry
 
     if ($ServiceName -notin $global:RegisteredServices) {
@@ -156,6 +176,7 @@ function Register-CustomService {
             BaseUrl     = $entry.BaseUrl
         }
         if ($SSOProvider) { $writeParams['SSOProvider'] = $SSOProvider }
+        if ($SSODomain)   { $writeParams['SSODomain']   = $SSODomain }
 
         Write-ServiceConfig @writeParams
         Write-Verbose "Persisted [$ServiceName-$Environment] to services.json."

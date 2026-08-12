@@ -23,13 +23,16 @@ function Get-ServiceCredential {
         Resolves a short-lived OAuth Bearer token from $global:ServiceSSOTokens. Provider
         is resolved from the service registry. Refreshes automatically when stale. SSO
         tokens are never stored in the vault. -Label and -SessionOnly are ignored for SSO.
+        For the Aria provider, refresh sources the underlying domain-account credential
+        via a nested Get-ServiceCredential -AuthType Basic call (label 'ssoidentity') and
+        resolves domain from registry SSODomain or a domain-joined system.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
 
     .PARAMETER AuthType
         The authentication type to resolve. Accepted values: Basic, Token, SSO.
-        Defaults to Basic.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria.
 
     .PARAMETER Label
         The vault label to retrieve. Defaults to 'default'.
@@ -74,10 +77,18 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.0
-        Date        : 31-JUL-26
+        Version     : 2.6.1
+        Date        : 12-AUG-26
 
         CHANGE LOG
+        2.6.1 | 12AUG26 | Added Aria SSO provider support to the SSO refresh block.
+                          Mirrors the Aria credential/domain resolution in
+                          Set-ServiceCredential — sources the domain-account credential
+                          via a nested Get-ServiceCredential -AuthType Basic call (label
+                          'ssoidentity') and resolves domain from registry SSODomain or a
+                          domain-joined system, then dispatches to Invoke-SSOProviderToken
+                          -Provider Aria with -Credential, -Domain, and -BaseUrl. GCloud
+                          and AzureCLI refresh paths unchanged.
         2.6.0 | 31JUL26 | Added 'QueryParam' AuthType. Recurses internally via -AuthType
                           Basic to reuse the full vault/fallback/prompt resolution chain,
                           then decodes the result into a plain UserName/Password object
@@ -195,7 +206,49 @@ function Get-ServiceCredential {
             # Refresh if within 5 minutes of expiry or already expired
             if ([DateTime]::UtcNow -ge $entry.ExpiresAt.AddMinutes(-5)) {
                 Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [$($entry.Provider)]."
-                $freshToken = Invoke-SSOProviderToken -Provider $entry.Provider
+
+                if ($entry.Provider -eq 'Aria') {
+                    # Mirrors the Aria resolution in Set-ServiceCredential's SSO branch —
+                    # keep both in sync if either changes.
+                    $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
+                    $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
+                    $ariaDecoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ariaB64))
+                    $ariaColonIndex   = $ariaDecoded.IndexOf(':')
+                    $ariaUserName     = if ($ariaColonIndex -gt 0) { $ariaDecoded.Substring(0, $ariaColonIndex) } else { '' }
+                    $ariaPassword     = $ariaDecoded.Substring($ariaColonIndex + 1)
+                    $ariaCredential   = [PSCredential]::new($ariaUserName, (ConvertTo-SecureString -String $ariaPassword -AsPlainText -Force))
+
+                    $ariaDomain = $null
+                    if ($global:ServiceRegistry.ContainsKey($Service) -and
+                        $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
+                        $global:ServiceRegistry[$Service][$Environment].SSODomain) {
+                        $ariaDomain = $global:ServiceRegistry[$Service][$Environment].SSODomain
+                    } else {
+                        try {
+                            $sysInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+                            if ($sysInfo.PartOfDomain -and $sysInfo.Domain) {
+                                $ariaDomain = $sysInfo.Domain
+                            }
+                        } catch { }
+                    }
+                    if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
+                        throw "Could not resolve Aria domain for [$Service-$Environment] during SSO refresh. Register SSODomain via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
+                    }
+
+                    $ariaBaseUrl = $null
+                    if ($global:ServiceRegistry.ContainsKey($Service) -and
+                        $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
+                        $ariaBaseUrl = $global:ServiceRegistry[$Service][$Environment].BaseUrl
+                    }
+                    if ([string]::IsNullOrWhiteSpace($ariaBaseUrl)) {
+                        throw "Could not resolve BaseUrl for [$Service-$Environment] during SSO refresh."
+                    }
+
+                    $freshToken = Invoke-SSOProviderToken -Provider $entry.Provider -Credential $ariaCredential -Domain $ariaDomain -BaseUrl $ariaBaseUrl
+                } else {
+                    $freshToken = Invoke-SSOProviderToken -Provider $entry.Provider
+                }
+
                 $global:ServiceSSOTokens[$key] = @{
                     Token     = (ConvertTo-SecureString -String $freshToken -AsPlainText -Force)
                     ExpiresAt = [DateTime]::UtcNow.AddMinutes(55)

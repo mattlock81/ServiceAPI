@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.5.3'
+ModuleVersion = '2.7.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -107,7 +107,15 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.5.0 | 17MAY26 | Unified authentication model — replaced -UseToken and -UseSSO parameters
+        ReleaseNotes = '2.7.0 | 12AUG26 | Added Aria (VMware Aria Automation) as a supported SSO
+                  provider. Aria is REST-native rather than CLI-based: it sources its domain-account
+                  credential via Get-ServiceCredential -AuthType Basic (label ''ssoidentity'') and
+                  performs the two-step CSP refresh-token / IaaS bearer-token exchange in
+                  Invoke-SSOProviderToken. Domain resolves from a new SSODomain field on the service
+                  registry (settable via Register-CustomService -SSODomain, persisted through
+                  Write-ServiceConfig/Read-ServiceConfig) or falls back to a domain-joined system''s
+                  own domain. GCloud and AzureCLI providers are unchanged. No breaking changes.
+2.5.0 | 17MAY26 | Unified authentication model — replaced -UseToken and -UseSSO parameters
                   with -AuthType [ValidateSet(''Basic'',''Token'',''SSO'')] across all public
                   functions. Added -Label parameter for named vault credential retrieval,
                   defaulting to ''default''. Auth mode selection is now explicit, tab-completed,
