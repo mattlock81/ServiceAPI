@@ -3,9 +3,9 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.5.5
+# Version: 2.8.0
 # Author: Matthew Sillett
-# Date: 2026-05-18
+# Date: 2026-08-17
 
 # ==============================
 # Phase 0: Dependency Import
@@ -166,4 +166,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.5.5)"
+Write-Verbose "ServiceAPI module loaded (v2.8.0)"

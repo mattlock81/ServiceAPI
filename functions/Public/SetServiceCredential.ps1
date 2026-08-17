@@ -12,6 +12,14 @@ function Set-ServiceCredential {
         supplied, the function prompts interactively. Supports global, service-global,
         environment-wide, and service+environment-specific storage.
 
+        Only the service+environment-specific storage mode (-Service and -Environment
+        both supplied) also writes to the SecretManagement vault, under the label given
+        by -Label. Global, service-global, and environment-wide storage remain
+        session-only (in-memory) — the vault's naming convention
+        ({service}-{label}-{environment}) has no valid key for those modes, and
+        Get-ServiceCredential's vault resolution path only ever looks up the exact
+        service+environment key.
+
         Token (-AuthType Token):
         Stores a static long-lived token for a specific service and environment. The token
         value may be supplied inline as a plain string or SecureString. If no value is
@@ -64,11 +72,13 @@ function Set-ServiceCredential {
 
     .EXAMPLE
         Set-ServiceCredential -Service jira -Environment prod
-        Prompts interactively and stores Basic Auth credentials for jira in prod.
+        Prompts interactively and stores Basic Auth credentials for jira in prod, both
+        in-memory and in the vault as jira-default-prod.
 
     .EXAMPLE
         Set-ServiceCredential -Service jira -Environment prod -AuthType Basic -Label matt
-        Prompts interactively and stores Basic Auth credentials under label 'matt'.
+        Prompts interactively and stores Basic Auth credentials under label 'matt', both
+        in-memory and in the vault as jira-matt-prod.
 
     .EXAMPLE
         Set-ServiceCredential -Service cloudflare -Environment prod -AuthType Token
@@ -81,10 +91,19 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.6.0
-        Date        : 12-AUG-26
+        Version     : 2.7.0
+        Date        : 17-AUG-26
 
         CHANGE LOG
+        2.7.0 | 17AUG26 | Basic Auth service+environment-specific storage now also writes
+                          to the SecretManagement vault (Set-Secret + Write-VaultIndex),
+                          mirroring the existing Token-mode vault write. Previously Basic
+                          Auth was session-only regardless of storage mode, causing
+                          in-memory state and vault state to silently diverge whenever a
+                          vault entry existed from a prior interactive prompt via
+                          Resolve-VaultCredential. Global, service-global, and
+                          environment-wide storage modes remain session-only — no valid
+                          vault key exists for them.
         2.6.0 | 12AUG26 | Added Aria SSO provider support. SSO branch now sources the
                           Aria domain-account credential via Get-ServiceCredential
                           -AuthType Basic (label 'ssoidentity') and resolves domain from
@@ -361,5 +380,18 @@ function Set-ServiceCredential {
         }
         $global:ServiceCredentials[$key] = $Credential
         Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label]."
+
+        # Write to vault when SecretManagement is available — mirrors Token mode.
+        # Only this storage mode maps to a valid vault key (service-label-environment).
+        if ($script:ServiceApiHasSecretManagement) {
+            $vaultName = "$Service-$Label-$Environment"
+            try {
+                Set-Secret -Name $vaultName -Secret $Credential -Vault LocalStore -ErrorAction Stop
+                Write-VaultIndex -ServiceKey $key -Label $Label
+                Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label] in vault as [$vaultName]."
+            } catch {
+                Write-Warning "Failed to store Basic Auth credential in vault — $_. Credential retained in session store only."
+            }
+        }
     }
 }

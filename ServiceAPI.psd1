@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.7.0'
+ModuleVersion = '2.8.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -107,7 +107,17 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.7.0 | 12AUG26 | Added Aria (VMware Aria Automation) as a supported SSO
+        ReleaseNotes = '2.8.0 | 17AUG26 | Set-ServiceCredential and Clear-ServiceCredential now keep the
+                  SecretManagement vault in sync automatically. Set-ServiceCredential''s
+                  service+environment-specific Basic Auth storage mode now writes to the vault (Token
+                  storage already did). Clear-ServiceCredential now removes the matching vault entry
+                  for targeted Basic/Token clears via the new Remove-VaultIndex private function, and
+                  gained a -Label parameter (defaults ''default'') to target the correct entry. Global,
+                  service-global, and environment-wide Basic Auth storage remain session-only, as does
+                  SSO — neither has a valid vault key under the {service}-{label}-{environment}
+                  convention. Fixes a gap where a "cleared" credential could still be silently
+                  re-resolved from the vault by Get-ServiceCredential. No breaking changes.
+2.7.0 | 12AUG26 | Added Aria (VMware Aria Automation) as a supported SSO
                   provider. Aria is REST-native rather than CLI-based: it sources its domain-account
                   credential via Get-ServiceCredential -AuthType Basic (label ''ssoidentity'') and
                   performs the two-step CSP refresh-token / IaaS bearer-token exchange in
