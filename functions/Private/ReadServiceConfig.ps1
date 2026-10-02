@@ -14,10 +14,12 @@ function Read-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.2.0
-        Date        : 12-AUG-26
+        Version     : 1.3.0
+        Date        : 01-OCT-26
 
         CHANGE LOG
+        1.3.0 | 01OCT26 | Added SSOTenant to the parsed field whitelist so it survives the
+                          read round-trip after being written by Write-ServiceConfig.
         1.2.0 | 12AUG26 | Added SSODomain to the parsed field whitelist so it survives
                           the read round-trip after being written by Write-ServiceConfig.
         1.1.0 | 17MAY26 | Updated path from module config\ directory to
@@ -52,6 +54,7 @@ function Read-ServiceConfig {
                 if ($src.PSObject.Properties['BaseUrl'])     { $envEntry['BaseUrl']     = $src.BaseUrl }
                 if ($src.PSObject.Properties['SSOProvider']) { $envEntry['SSOProvider'] = $src.SSOProvider }
                 if ($src.PSObject.Properties['SSODomain'])   { $envEntry['SSODomain']   = $src.SSODomain }
+                if ($src.PSObject.Properties['SSOTenant'])   { $envEntry['SSOTenant']   = $src.SSOTenant }
 
                 $result[$serviceName][$env] = $envEntry
             }

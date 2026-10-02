@@ -15,6 +15,8 @@ function Invoke-SSOProviderToken {
                        UserName in 'username@domain' or plain 'username' form) and
                        -Domain. Performs the two-step CSP refresh-token then IaaS
                        bearer-token exchange over REST — no CLI tool required.
+            AriaOidc — not handled here. It returns a token pair (access + refresh) rather
+                       than a single string, so it is acquired by Invoke-AriaOidcLogin.
 
     .PARAMETER Provider
         The SSO provider name. Must match a supported provider in the dispatch switch.
@@ -47,10 +49,14 @@ function Invoke-SSOProviderToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.0
-        Date        : 12-AUG-26
+        Version     : 1.2.0
+        Date        : 01-OCT-26
 
         CHANGE LOG
+        1.2.0 | 01OCT26 | Added an explicit 'AriaOidc' case that throws a clear message —
+                          AriaOidc returns a token pair and is acquired via
+                          Invoke-AriaOidcLogin, not this string-returning function.
+                          Supported-provider error text updated.
         1.1.0 | 12AUG26 | Added Aria provider — two-step CSP refresh-token / IaaS
                           bearer-token REST exchange. Added optional -Credential, -Domain,
                           -BaseUrl parameters, unused by and non-breaking for GCloud and
@@ -159,8 +165,12 @@ function Invoke-SSOProviderToken {
             }
         }
 
+        'AriaOidc' {
+            throw "SSO provider [AriaOidc] returns a token pair and is acquired via Invoke-AriaOidcLogin, not this function."
+        }
+
         default {
-            throw "Unknown SSO provider [$Provider]. Supported providers: GCloud, AzureCLI, Aria."
+            throw "Unknown SSO provider [$Provider]. Supported providers: GCloud, AzureCLI, Aria, AriaOidc."
         }
     }
 

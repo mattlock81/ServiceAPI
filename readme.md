@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.8.0  
+**Version**: 2.9.0  
 **Author**: Matthew Sillett  
 **Organisation**:
 
@@ -10,11 +10,13 @@
 
 ServiceAPI is a PowerShell module that provides a unified REST API framework for interacting with multiple services. It supports Basic Auth, static Token, SSO OAuth, QueryParam (credential delivered via URL query string rather than a header), and None (unauthenticated) authentication modes via a persistent service registry pattern, with optional credential persistence through Microsoft SecretManagement vault integration.
 
-SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), and `Aria` (VMware Aria Automation — REST-native, no CLI tool required).
+SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), and `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener).
 
 Services are registered once with a BaseUrl and stored in a user-scoped `services.json` file. Credentials are resolved automatically from the vault, from in-memory global state, or via interactive prompt — in that order. All public functions share a unified `-AuthType` parameter with tab completion, and the `-Service` parameter tab-completes from the live registry.
 
 ServiceAPI degrades gracefully when optional dependencies (`SysCommon`, `Microsoft.PowerShell.SecretManagement`) are absent.
+
+Current state, design decisions, open items and planned scope are tracked in [docs/Rehydration.md](docs/Rehydration.md). Start there when picking up the project; this readme is the identity record.
 
 ---
 
@@ -106,7 +108,7 @@ Register-CustomService -ServiceName mycloud -BaseUrl 'https://api.example.com' -
 Invoke-APIRequest -Service mycloud -Endpoint 'projects' -AuthType SSO
 ```
 
-Supported providers: `GCloud`, `AzureCLI`, `Aria`. SSO tokens are cached in `$global:ServiceSSOTokens` with an expiry timestamp and refreshed automatically when within 5 minutes of expiry — never stored in the vault, regardless of provider.
+Supported providers: `GCloud`, `AzureCLI`, `Aria`, `AriaOidc`. SSO tokens are cached in `$global:ServiceSSOTokens` with an expiry timestamp and refreshed automatically when within 5 minutes of expiry — never stored in the vault, regardless of provider.
 
 #### Aria (VMware Aria Automation)
 
@@ -121,6 +123,31 @@ Register-CustomService -ServiceName aria -BaseUrl 'https://aria.example.com' -SS
 # performs the CSP/IaaS token exchange. Subsequent calls reuse the cached bearer
 # token until it needs refreshing.
 Invoke-APIRequest -Service aria -Endpoint 'iaas/api/projects' -AuthType SSO
+```
+
+#### AriaOidc (Aria / VCF Automation via the portal's OIDC session)
+
+For tenants where the `Aria` username/password exchange is rejected, `AriaOidc` reuses the portal's own browser login. The SPA keeps its tokens in memory only, so a small Violentmonkey userscript (the courier) forwards the SPA's own `/oidc/oauth2/token` response to a loopback listener started by `Invoke-AriaOidcLogin`. The listener binds to `127.0.0.1` only and accepts a single POST that carries the courier header, a matching origin, and both an access and a refresh token.
+
+The first call opens the portal in the default browser. After that, the cached refresh token — opaque, non-rotating, valid for the browser session (about 8 hours) — is exchanged silently for a new bearer token whenever the cached one is within 5 minutes of expiry, and the browser is only opened again if that exchange is rejected. The refresh token is held in memory in `$global:ServiceSSOTokens` and is never stored in the vault. The browser path needs a person at the keyboard, so `AriaOidc` is not suitable for unattended automation.
+
+```powershell
+# SSOTenant is the tenant name shown after 'service=tenant:' in the portal login redirect.
+# BaseUrl is the host root only — no /tenant/... suffix.
+Register-CustomService -ServiceName aihc -BaseUrl 'https://aria.example.com' -SSOProvider AriaOidc -SSOTenant 'my-tenant' -Persistent
+
+# First call opens the portal; later calls refresh silently until the session ends.
+Invoke-APIRequest -Service aihc -Endpoint 'iaas/api/about' -AuthType SSO
+```
+
+The courier ships inside the module, so there is no separate file to obtain. The first time on a browser, the login prints an install URL (`http://127.0.0.1:47811/aria-oidc-courier.user.js`); the loopback listener serves the script, rendered for the registered host, and Violentmonkey offers to install it. Install it once, enable it, and reload the portal tab. The listener binds `127.0.0.1:47811` by default; do not run another listener on that port at the same time.
+
+The refresh exchange adapts to the tenant. Aria v9 does not advertise unauthenticated clients, so `Invoke-AriaOidcRefresh` tries a ladder of call shapes (bare with `tm_ui`, bare, `client_id` in the body, Basic `client_id:`) and caches the one that works; the client id is read from the access token's `aud` claim. The bearer that `Invoke-APIRequest` sends is chosen by test: the OIDC access token when the IaaS API accepts it, otherwise the token `iaas/api/login` issues for the OIDC refresh token.
+
+To see which call shapes and which bearer a tenant accepts (statuses only — no tokens are printed), run this after one successful SSO call:
+
+```powershell
+& (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
 ```
 
 ### Unauthenticated Service
@@ -239,7 +266,7 @@ For Token Auth, resolution order is:
 2. Vault lookup via `Resolve-VaultCredential`
 3. Interactive prompt
 
-For SSO, a cached token is returned if valid. If expired or absent, `Invoke-SSOProviderToken` acquires a new token from the registered provider (`GCloud`, `AzureCLI`, or `Aria`). For `Aria`, refresh additionally resolves the underlying domain-account credential via a nested `Get-ServiceCredential -AuthType Basic -Label ssoidentity` call and the domain via registry `SSODomain` or the local domain-joined system.
+For SSO, a cached token is returned if valid. If expired or absent, `Invoke-SSOProviderToken` acquires a new token from the registered provider (`GCloud`, `AzureCLI`, or `Aria`). For `Aria`, refresh additionally resolves the underlying domain-account credential via a nested `Get-ServiceCredential -AuthType Basic -Label ssoidentity` call and the domain via registry `SSODomain` or the local domain-joined system. `AriaOidc` is acquired by `Invoke-AriaOidcLogin` instead (through `Set-ServiceCredential`), which exchanges the cached refresh token or opens a browser login.
 
 `QueryParam` reuses the Basic Auth resolution chain above in full (recursing internally with `-AuthType Basic`), then decodes the resolved credential into a plain `UserName`/`Password` object instead of building a header — see [Query Parameter Authentication](#query-parameter-authentication).
 
@@ -289,12 +316,19 @@ Vault labels are tracked in a machine-local `credential-index.json` at `$env:LOC
 ServiceAPI/
 ├── ServiceAPI.psm1
 ├── ServiceAPI.psd1
+├── docs/
+│   └── Rehydration.md
 └── functions/
     ├── Private/
+    │   ├── ConvertFromJwtPayload.ps1
     │   ├── ConvertSecureStringToPlainText.ps1
     │   ├── ConvertVaultSecretToCredential.ps1
+    │   ├── GetAriaCourierScript.ps1
     │   ├── InitializeServiceConfig.ps1
     │   ├── InitializeVaultIndex.ps1
+    │   ├── InvokeAriaOidcLogin.ps1
+    │   ├── InvokeAriaOidcProbe.ps1
+    │   ├── InvokeAriaOidcRefresh.ps1
     │   ├── InvokeCredentialPrompt.ps1
     │   ├── InvokeSSOProviderToken.ps1
     │   ├── NewServiceKey.ps1
@@ -304,6 +338,7 @@ ServiceAPI/
     │   ├── RemoveVaultIndex.ps1
     │   ├── ResolveVaultCredential.ps1
     │   ├── TestIsTokenValue.ps1
+    │   ├── WaitAriaCourierToken.ps1
     │   ├── WriteServiceApiHandledError.ps1
     │   ├── WriteServiceConfig.ps1
     │   └── WriteVaultIndex.ps1
@@ -320,7 +355,7 @@ User data files are stored outside the module directory and are never committed 
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` | Persistent service registry — BaseUrl and SSOProvider per service/environment |
+| `services.json` | `$env:APPDATA\ServiceAPI\` | Persistent service registry — BaseUrl, SSOProvider, SSODomain and SSOTenant per service/environment |
 | `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` | Machine-local vault label index — tracks which named credentials exist per service key |
 
 ---
@@ -329,6 +364,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.9.0 | 01Oct26 | Added AriaOidc as a supported -SSOProvider for Aria / VCF Automation tenants. Authenticates through the portal's own OIDC browser session: new private functions Invoke-AriaOidcLogin, Invoke-AriaOidcRefresh, Get-AriaCourierScript, Wait-AriaCourierToken and ConvertFrom-JwtPayload, plus an Invoke-AriaOidcProbe diagnostic. The courier userscript is a template inside the module, served by the loopback listener for a one-time install. Invoke-AriaOidcLogin exchanges a cached refresh token silently (trying a ladder of call shapes and caching the one that works) or, when the session has ended, opens the portal in the default browser and receives the SPA's token response from the Violentmonkey courier userscript on a loopback listener (127.0.0.1 only). The refresh token is held in memory in $global:ServiceSSOTokens and never stored in the vault. Set-ServiceCredential (2.8.0) owns the AriaOidc refresh cycle and Get-ServiceCredential (2.7.0) delegates to it when stale. New -SSOTenant parameter on Register-CustomService (2.5.0), persisted via Write-ServiceConfig (1.3.0) / Read-ServiceConfig (1.3.0). Fixed module load dropping a persisted SSODomain — Phase 5 now forwards both SSODomain and SSOTenant to Register-CustomService. |
 | 2.8.0 | 17Aug26 | Set-ServiceCredential (2.7.0) and Clear-ServiceCredential (2.6.0) now keep the vault in sync automatically for service+environment-specific Basic Auth and all Token credentials — Set writes to the vault, Clear removes from it (Remove-Secret + new Remove-VaultIndex private function). Added -Label to Clear-ServiceCredential (defaults 'default') so the correct vault entry is targeted. Global/service-global/environment-wide Basic Auth storage remains session-only, as does SSO — neither has a valid vault key. Fixes a gap where Clear-ServiceCredential only ever cleared in-memory state, allowing Get-ServiceCredential to silently re-resolve a "cleared" credential from the vault. |
 | 2.7.0 | 12Aug26 | Added Aria (VMware Aria Automation) as a supported -SSOProvider. REST-native two-step CSP refresh-token / IaaS bearer-token exchange in Invoke-SSOProviderToken — no CLI tool required, unlike GCloud/AzureCLI. Sources its underlying domain-account credential via Get-ServiceCredential -AuthType Basic (label 'ssoidentity'), so the first SSO call for Aria can bootstrap that credential interactively. Domain resolves from a new -SSODomain parameter on Register-CustomService (persisted through Write-ServiceConfig/Read-ServiceConfig), falling back to a domain-joined system's own domain when omitted. |
 | 2.6.0 | 31Jul26 | Added QueryParam to -AuthType across Invoke-APIRequest and Get-ServiceCredential, for services (e.g. Synology DSM) whose login endpoint expects credentials as query string parameters rather than an Authorization header. Recurses internally via -AuthType Basic to reuse the full vault/fallback/prompt chain, then decodes the result into a UserName/Password object substituted into {user}/{pass} endpoint placeholders. Vault-backed, so eligible for 403 retry like Basic. Extracted Convert-VaultSecretToCredential from Resolve-VaultCredential to remove duplicated PSCredential normalisation logic between the single-label and multi-label vault lookup paths. |
