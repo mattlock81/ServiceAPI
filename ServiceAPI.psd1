@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.8.0'
+ModuleVersion = '2.9.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -107,7 +107,17 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.8.0 | 17AUG26 | Set-ServiceCredential and Clear-ServiceCredential now keep the
+        ReleaseNotes = '2.9.0 | 01OCT26 | Added AriaOidc as a supported SSO provider for Aria (VCF
+                  Automation) tenants. It authenticates through the portal''s own OIDC browser
+                  session: Invoke-AriaOidcLogin exchanges a cached refresh token silently or, when
+                  the session has ended, opens the portal in the default browser and receives the
+                  SPA''s token response from the Violentmonkey courier userscript on a loopback
+                  listener (127.0.0.1 only). The refresh token is held in memory in
+                  $global:ServiceSSOTokens and never stored in the vault. New -SSOTenant parameter
+                  on Register-CustomService, persisted via Write-ServiceConfig/Read-ServiceConfig.
+                  Fixed module load dropping a persisted SSODomain — Phase 5 now forwards both
+                  SSODomain and SSOTenant to Register-CustomService. No breaking changes.
+2.8.0 | 17AUG26 | Set-ServiceCredential and Clear-ServiceCredential now keep the
                   SecretManagement vault in sync automatically. Set-ServiceCredential''s
                   service+environment-specific Basic Auth storage mode now writes to the vault (Token
                   storage already did). Clear-ServiceCredential now removes the matching vault entry

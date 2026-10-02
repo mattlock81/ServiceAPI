@@ -26,13 +26,16 @@ function Get-ServiceCredential {
         For the Aria provider, refresh sources the underlying domain-account credential
         via a nested Get-ServiceCredential -AuthType Basic call (label 'ssoidentity') and
         resolves domain from registry SSODomain or a domain-joined system.
+        For the AriaOidc provider, refresh is delegated to Set-ServiceCredential -AuthType
+        SSO, which exchanges the cached refresh token or, if the session has ended, opens a
+        browser login.
 
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
 
     .PARAMETER AuthType
         The authentication type to resolve. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
 
     .PARAMETER Label
         The vault label to retrieve. Defaults to 'default'.
@@ -77,10 +80,17 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.1
-        Date        : 12-AUG-26
+        Version     : 2.7.0
+        Date        : 01-OCT-26
 
         CHANGE LOG
+        2.7.0 | 01OCT26 | Added AriaOidc SSO provider support to the SSO refresh block. When
+                          an AriaOidc token is stale, refresh is delegated to
+                          Set-ServiceCredential -AuthType SSO -Force, which owns the cycle
+                          (silent refresh-token exchange, browser login fallback) and keeps
+                          the refresh token in the cache entry. The shared 55-minute
+                          re-store below is bypassed for AriaOidc because its expiry comes
+                          from the token response. Other providers unchanged.
         2.6.1 | 12AUG26 | Added Aria SSO provider support to the SSO refresh block.
                           Mirrors the Aria credential/domain resolution in
                           Set-ServiceCredential — sources the domain-account credential
@@ -204,7 +214,15 @@ function Get-ServiceCredential {
             $entry = $global:ServiceSSOTokens[$key]
 
             # Refresh if within 5 minutes of expiry or already expired
-            if ([DateTime]::UtcNow -ge $entry.ExpiresAt.AddMinutes(-5)) {
+            $ssoStale = [DateTime]::UtcNow -ge $entry.ExpiresAt.AddMinutes(-5)
+
+            if ($ssoStale -and $entry.Provider -eq 'AriaOidc') {
+                # AriaOidc owns its refresh cycle in Set-ServiceCredential — it reuses the cached
+                # refresh token and falls back to a browser login if the session has ended.
+                Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [AriaOidc]."
+                Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force
+                $entry = $global:ServiceSSOTokens[$key]
+            } elseif ($ssoStale) {
                 Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [$($entry.Provider)]."
 
                 if ($entry.Provider -eq 'Aria') {

@@ -21,7 +21,7 @@ function Register-CustomService {
         When -Persistent is not specified, the registration is session-only and lost on module
         reload.
 
-        Supported SSO providers: GCloud, AzureCLI, Aria.
+        Supported SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
 
     .PARAMETER ServiceName
         The name to identify the service (e.g., custom-api, github, googleapi).
@@ -40,13 +40,18 @@ function Register-CustomService {
         Optional. Associates a default SSO provider with this service registration.
         When specified, -UseSSO calls against this service will use this provider for
         token acquisition and refresh without requiring the provider to be named on each call.
-        Accepted values: GCloud, AzureCLI, Aria.
+        Accepted values: GCloud, AzureCLI, Aria, AriaOidc.
 
     .PARAMETER SSODomain
         Optional. Only meaningful when -SSOProvider is 'Aria'. The domain to submit
         alongside the username during the Aria CSP token exchange. When omitted, the
         domain of a domain-joined system is used automatically at request time — set this
         explicitly for non-domain-joined systems (e.g. a personal dev machine).
+
+    .PARAMETER SSOTenant
+        Optional. Only meaningful when -SSOProvider is 'AriaOidc'. The Aria tenant name, as it
+        appears after 'service=tenant:' in the portal login redirect. Required by the AriaOidc
+        provider to open the correct tenant portal during browser login.
 
     .PARAMETER Persistent
         When specified, writes the registration to config\services.json so it is restored
@@ -73,10 +78,14 @@ function Register-CustomService {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.4.0
-        Date        : 12-AUG-26
+        Version     : 2.5.0
+        Date        : 01-OCT-26
 
         CHANGE LOG
+        2.5.0 | 01OCT26 | Added 'AriaOidc' to the -SSOProvider ValidateSet. Added optional
+                          -SSOTenant parameter, stored in the in-memory registry entry and
+                          persisted to services.json via Write-ServiceConfig when -Persistent
+                          is specified. Used only by the AriaOidc provider.
         2.4.0 | 12AUG26 | Added 'Aria' to the -SSOProvider ValidateSet. Added optional
                           -SSODomain parameter, stored in the in-memory registry entry
                           and persisted to services.json via Write-ServiceConfig when
@@ -116,10 +125,12 @@ function Register-CustomService {
             'Content-Type' = 'application/json'
         },
 
-        [ValidateSet('GCloud', 'AzureCLI', 'Aria')]
+        [ValidateSet('GCloud', 'AzureCLI', 'Aria', 'AriaOidc')]
         [string]$SSOProvider,
 
         [string]$SSODomain,
+
+        [string]$SSOTenant,
 
         [switch]$Persistent,
         [switch]$Force
@@ -160,6 +171,14 @@ function Register-CustomService {
         Write-Verbose "SSO domain [$SSODomain] registered for [$ServiceName-$Environment]."
     }
 
+    if ($SSOTenant) {
+        if ($SSOProvider -ne 'AriaOidc') {
+            Write-Warning "-SSOTenant is only used by the AriaOidc SSO provider and will be stored but ignored for provider [$SSOProvider]."
+        }
+        $entry['SSOTenant'] = $SSOTenant
+        Write-Verbose "SSO tenant [$SSOTenant] registered for [$ServiceName-$Environment]."
+    }
+
     $global:ServiceRegistry[$ServiceName][$Environment] = $entry
 
     if ($ServiceName -notin $global:RegisteredServices) {
@@ -177,6 +196,7 @@ function Register-CustomService {
         }
         if ($SSOProvider) { $writeParams['SSOProvider'] = $SSOProvider }
         if ($SSODomain)   { $writeParams['SSODomain']   = $SSODomain }
+        if ($SSOTenant)   { $writeParams['SSOTenant']   = $SSOTenant }
 
         Write-ServiceConfig @writeParams
         Write-Verbose "Persisted [$ServiceName-$Environment] to services.json."

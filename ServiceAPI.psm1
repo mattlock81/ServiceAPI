@@ -3,9 +3,9 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.8.0
+# Version: 2.9.0
 # Author: Matthew Sillett
-# Date: 2026-08-17
+# Date: 2026-10-01
 
 # ==============================
 # Phase 0: Dependency Import
@@ -150,6 +150,14 @@ foreach ($serviceName in $persistedServices.Keys) {
             $regParams['SSOProvider'] = $entry.SSOProvider
         }
 
+        if ($entry.ContainsKey('SSODomain') -and -not [string]::IsNullOrWhiteSpace($entry.SSODomain)) {
+            $regParams['SSODomain'] = $entry.SSODomain
+        }
+
+        if ($entry.ContainsKey('SSOTenant') -and -not [string]::IsNullOrWhiteSpace($entry.SSOTenant)) {
+            $regParams['SSOTenant'] = $entry.SSOTenant
+        }
+
         Register-CustomService @regParams
         Write-Verbose "Loaded service [$serviceName-$env] from services.json."
     }
@@ -166,4 +174,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.8.0)"
+Write-Verbose "ServiceAPI module loaded (v2.9.0)"

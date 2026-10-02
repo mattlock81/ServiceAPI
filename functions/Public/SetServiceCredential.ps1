@@ -32,7 +32,7 @@ function Set-ServiceCredential {
         is resolved from the service registry. SSO tokens are stored with an expiry
         timestamp and refreshed automatically when stale. Requires both -Service and
         -Environment. Global SSO tokens are not supported. Supported providers: GCloud,
-        AzureCLI, Aria.
+        AzureCLI, Aria, AriaOidc.
 
         The Aria provider is a special case within SSO mode: it sources its underlying
         domain-account credential via Get-ServiceCredential -AuthType Basic (vault-backed,
@@ -44,13 +44,22 @@ function Set-ServiceCredential {
         domain-joined system when SSODomain is not set — non-domain-joined systems must
         have SSODomain registered explicitly.
 
+        The AriaOidc provider is a second Aria path that authenticates through the portal's own
+        OIDC browser session rather than a domain-account credential. It resolves BaseUrl and
+        SSOTenant from the service registry (Register-CustomService -SSOProvider AriaOidc
+        -SSOTenant <tenant>) and calls Invoke-AriaOidcLogin. A cached refresh token is exchanged
+        silently while the browser session is alive; otherwise the portal opens in the default
+        browser and the courier userscript delivers the token pair to a loopback listener. The
+        refresh token is held in memory alongside the bearer token and never stored in the
+        vault. This path is interactive and not suitable for unattended automation.
+
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
         Required for Token and SSO storage. Optional for Basic Auth global storage.
 
     .PARAMETER AuthType
         The authentication type to store. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
 
     .PARAMETER Credential
         A PSCredential object for Basic Auth storage. If omitted, prompts interactively.
@@ -91,10 +100,18 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.7.0
-        Date        : 17-AUG-26
+        Version     : 2.8.0
+        Date        : 01-OCT-26
 
         CHANGE LOG
+        2.8.0 | 01OCT26 | Added AriaOidc SSO provider support. The SSO branch resolves BaseUrl
+                          and SSOTenant from the service registry and calls
+                          Invoke-AriaOidcLogin, passing any cached refresh token so a live
+                          browser session refreshes silently. The returned token pair is cached
+                          in $global:ServiceSSOTokens with a RefreshToken field and an expiry
+                          taken from the token response. This branch also owns the AriaOidc
+                          refresh cycle — Get-ServiceCredential delegates to it when stale.
+                          GCloud, AzureCLI and Aria paths unchanged.
         2.7.0 | 17AUG26 | Basic Auth service+environment-specific storage now also writes
                           to the SecretManagement vault (Set-Secret + Write-VaultIndex),
                           mirroring the existing Token-mode vault write. Previously Basic
@@ -236,7 +253,7 @@ function Set-ServiceCredential {
                 throw "SSO provider is required. Register one via Register-CustomService -SSOProvider."
             }
 
-            Write-Host "Supported providers: GCloud, AzureCLI" -ForegroundColor Cyan
+            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc" -ForegroundColor Cyan
             $provider = Read-Host "Enter provider name"
 
             if ([string]::IsNullOrWhiteSpace($provider)) {
@@ -299,6 +316,44 @@ function Set-ServiceCredential {
             }
 
             $tokenValue = Invoke-SSOProviderToken -Provider $provider -Credential $ariaCredential -Domain $ariaDomain -BaseUrl $ariaBaseUrl
+
+        } elseif ($provider -eq 'AriaOidc') {
+
+            # Resolve BaseUrl and tenant from the registry — same source Get-ServiceConfig uses
+            $ariaEntry = $null
+            if ($global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
+                $ariaEntry = $global:ServiceRegistry[$Service][$Environment]
+            }
+            if (-not $ariaEntry -or [string]::IsNullOrWhiteSpace($ariaEntry.BaseUrl)) {
+                throw "Could not resolve BaseUrl for [$Service-$Environment]. Register the service first."
+            }
+            if ([string]::IsNullOrWhiteSpace($ariaEntry.SSOTenant)) {
+                throw "AriaOidc requires a tenant for [$Service-$Environment]. Register one via Register-CustomService -SSOProvider AriaOidc -SSOTenant <tenant>."
+            }
+
+            # Reuse any cached refresh state — no browser login while the session is alive
+            $oidcKey = New-ServiceKey -Service $Service -Environment $Environment
+            $cached  = $null
+            if ($global:ServiceSSOTokens.ContainsKey($oidcKey)) {
+                $cached = $global:ServiceSSOTokens[$oidcKey]
+            }
+
+            $login = Invoke-AriaOidcLogin -BaseUrl $ariaEntry.BaseUrl -Tenant $ariaEntry.SSOTenant `
+                -RefreshToken $cached.RefreshToken -ClientId $cached.ClientId -RefreshMode $cached.RefreshMode
+
+            $global:ServiceSSOTokens[$oidcKey] = @{
+                Token        = $login.Bearer
+                RefreshToken = $login.RefreshToken
+                ExpiresAt    = [DateTime]::UtcNow.AddSeconds($login.ExpiresIn)
+                Provider     = $provider
+                ClientId     = $login.ClientId
+                RefreshMode  = $login.RefreshMode
+                BearerMode   = $login.BearerMode
+            }
+
+            Write-Verbose "Stored SSO token for [$oidcKey] via provider [AriaOidc]. Expires at [$($global:ServiceSSOTokens[$oidcKey].ExpiresAt)] UTC."
+            return
 
         } else {
             $tokenValue = Invoke-SSOProviderToken -Provider $provider
