@@ -1,8 +1,8 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.9.0 (working tree — uncommitted; smoke-tested with loopback mocks, not yet run against a real Aria tenant)
-**Last updated**: 01-OCT-26
+**Version at time of writing**: 2.9.0 (committed as 6acd179; smoke-tested with loopback mocks, not yet run against a real Aria tenant)
+**Last updated**: 04-OCT-26
 **Author**: Matthew Sillett
 
 > Current-state and design-decision record for this repository. `readme.md` is the identity
@@ -15,8 +15,8 @@
 
 ## 1. Current State
 
-- Last committed release is v2.8.0 (automatic vault sync for `Set-`/`Clear-ServiceCredential`).
-- v2.9.0 adds the `AriaOidc` SSO provider, applied to the working tree (uncommitted). It is
+- Last committed release is v2.9.0 (commit `6acd179`, the `AriaOidc` SSO provider). v2.8.0 added automatic vault sync for `Set-`/`Clear-ServiceCredential`.
+- v2.9.0 adds the `AriaOidc` SSO provider. It is
   built from private functions: `Invoke-AriaOidcLogin` (orchestrator), `Invoke-AriaOidcRefresh`
   (call-shape ladder), `Get-AriaCourierScript` (userscript template), `Wait-AriaCourierToken`
   (loopback listener), `ConvertFrom-JwtPayload`, and `Invoke-AriaOidcProbe` (diagnostic).
@@ -75,6 +75,7 @@
    call in the target browser.
 4. Windows PowerShell 5.1 compatibility of the `AriaOidc` code is unverified (the manifest
    minimum is 5.1; the smoke tests ran on PowerShell 7).
+5. The Linux behaviour of `SecretManagement.KeePass`, and the availability of a PowerShell 7 package for RHEL 10, are unverified.
 
 ## 5. Planned Scope
 
@@ -86,7 +87,7 @@
   such as Confluence.
 - Cross-platform (RHEL) support using OS branching at import time — previously planned,
   deferred pending the Phase 1 source.
-- Refresh the `serviceapi-module-knowledge` skill, which still describes v2.5.5.
+- Multiple vaults with a vault selector, and KeePass support. The design record is in section 7.
 
 ## 6. Conventions and Gotchas
 
@@ -102,11 +103,45 @@
 - Loopback tests should use `Start-ThreadJob`, not `Start-Job`: a child process loads the whole
   PowerShell profile and delays the client by seconds.
 
+## 7. Vault Selection Design (planned, not implemented)
+
+No code for this section exists at v2.9.0. It records the design so that a fresh session does not re-derive it.
+
+**Decided**
+
+- Detect the vault. If none exists, prompt to create one through the default flow.
+- A saved default vault, so the user is not asked every time, and a `-Vault` parameter to override it at run time.
+- Reads use the vault recorded in the index for the label. `-Vault` also stores a credential in a different vault.
+- `SecretManagement.KeePass` is wired in as a vault type because it suits both Windows and Linux.
+- Several vaults separate capabilities. Documentation suggests generic names: `automation`, `local-systems`, `online-accounts`.
+- Credential export and import for sharing between users is a separate follow-up (documentation suggestion only).
+- A loader OS check sets script-scoped variables so the module runs a Windows or a Linux (RHEL) branch.
+
+**Facts established**
+
+- SecretStore is one store per Windows user. Registering several SecretStore vaults under different names duplicates the same store, so separation needs another extension.
+- KeePass on Windows (PowerShell 7, `SecretManagement.KeePass` 0.9.3): a vault created with only a key file needs no prompt, a PSCredential round-trips, and a token string returns as a SecureString.
+- An unscoped `Get-Secret` with the same name in two vaults returns silently from one of them, so scoping every call with `-Vault` is a correctness requirement.
+- At v2.9.0 the module hardcodes `-Vault LocalStore` at five write and remove call sites (two in `Resolve-VaultCredential`, two in `Set-ServiceCredential`, one in `Clear-ServiceCredential`) and has two unscoped `Get-Secret` calls in `Resolve-VaultCredential`.
+- Vault registrations are per user and per machine, so the index must record vault names, never file paths.
+
+**Proposed (not confirmed as final)**
+
+- Index schema `service-key -> label -> vault`. The old array form is read as legacy and rewritten on the next write.
+- Resolver order: reads use `-Vault`, then the index-recorded vault, then the saved default. Writes use `-Vault`, the saved default, the single registered vault, then a prompt.
+- New public functions `Set-ServiceVault` and `Get-ServiceVault`, with the saved default held in `vault-config.json` in the machine-local data folder.
+- No vault: interactive runs offer to create a personal SecretStore vault named `LocalStore`. Non-interactive runs fall back to `-SessionOnly` with a warning.
+- A loader phase sets `$script:ServiceApiIsWindows` and `$script:ServiceApiIsLinux` (`$IsWindows` is absent in PowerShell 5.1, which is Windows-only), and one path helper builds the config and index paths.
+- Replace `PtrToStringAuto` on a BSTR (likely wrong on Linux) with `ConvertFrom-SecureString -AsPlainText` on PowerShell 7.
+
+Implementation order: loader OS check and path helper, vault functions, `-Vault` and defaults, documentation, skill update.
+
 ---
 
 ## Change Log
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 04-OCT-26 | Brought current to the committed v2.9.0 (6acd179); added the planned vault selection design record (section 7); skill refresh item completed. |
 | 1.1.0 | 01-OCT-26 | Courier userscript and listener built into the module as private functions; refresh call-shape ladder and verified bearer selection added (D9–D11); gotchas from smoke testing recorded. |
 | 1.0.0 | 01-OCT-26 | Initial rehydration record, written alongside v2.9.0 (`AriaOidc`). |
