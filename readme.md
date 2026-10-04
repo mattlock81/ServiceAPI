@@ -134,10 +134,10 @@ The first call opens the portal in the default browser. After that, the cached r
 ```powershell
 # SSOTenant is the tenant name shown after 'service=tenant:' in the portal login redirect.
 # BaseUrl is the host root only — no /tenant/... suffix.
-Register-CustomService -ServiceName aihc -BaseUrl 'https://aria.example.com' -SSOProvider AriaOidc -SSOTenant 'my-tenant' -Persistent
+Register-CustomService -ServiceName aria-example -BaseUrl 'https://aria.example.com' -SSOProvider AriaOidc -SSOTenant 'my-tenant' -Persistent
 
 # First call opens the portal; later calls refresh silently until the session ends.
-Invoke-APIRequest -Service aihc -Endpoint 'iaas/api/about' -AuthType SSO
+Invoke-APIRequest -Service aria-example -Endpoint 'iaas/api/about' -AuthType SSO
 ```
 
 The courier ships inside the module, so there is no separate file to obtain. The first time on a browser, the login prints an install URL (`http://127.0.0.1:47811/aria-oidc-courier.user.js`); the loopback listener serves the script, rendered for the registered host, and Violentmonkey offers to install it. Install it once, enable it, and reload the portal tab. The listener binds `127.0.0.1:47811` by default; do not run another listener on that port at the same time.
@@ -147,7 +147,7 @@ The refresh exchange adapts to the tenant. Aria v9 does not advertise unauthenti
 To see which call shapes and which bearer a tenant accepts (statuses only — no tokens are printed), run this after one successful SSO call:
 
 ```powershell
-& (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
+& (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria-example }
 ```
 
 ### Unauthenticated Service
@@ -306,6 +306,22 @@ Get-Content "$env:LOCALAPPDATA\ServiceAPI\credential-index.json"
 ```
 
 Vault labels are tracked in a machine-local `credential-index.json` at `$env:LOCALAPPDATA\ServiceAPI\`. This index is never committed to source control. `Clear-ServiceCredential` keeps it in sync via the new `Remove-VaultIndex` private function (mirrors `Write-VaultIndex`).
+
+### SecretStore limitation and multiple vaults
+
+`Microsoft.PowerShell.SecretStore` is one store per Windows user. Its documentation states that scope `AllUsers` is not supported, and registering several SecretStore vaults under different names does not create separate stores: every registration shares the same secrets and the same lock configuration. A locked vault for sensitive credentials and an unlocked vault for automation therefore cannot both be SecretStore. Vault registrations are also per user and per machine.
+
+ServiceAPI v2.9.0 reads and writes only a vault registered with the name `LocalStore`.
+
+**Planned (not available in v2.9.0):** support for more than one vault, using another SecretManagement extension (`SecretManagement.KeePass` has been tested on Windows) alongside or instead of SecretStore. The intended design is a saved default vault, a `-Vault` parameter to override it, and the vault name recorded per label in `credential-index.json`. A suggested separation uses generic vault names by capability:
+
+| Vault name | Suggested contents |
+|---|---|
+| `automation` | Credentials used by unattended scripts, unlocked for non-interactive use |
+| `local-systems` | Credentials for systems on the local network |
+| `online-accounts` | Credentials for internet-facing accounts and APIs |
+
+Sharing credentials between users (export and import) is a separate follow-up and is not part of this design.
 
 
 ---

@@ -16,7 +16,7 @@ function Invoke-AriaOidcProbe {
         No token, client id or secret is written to the host. Replaces the standalone listener
         harness. Not exported — run it inside the module scope:
 
-            & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
+            & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria-example }
 
     .PARAMETER Service
         The registered service name.
