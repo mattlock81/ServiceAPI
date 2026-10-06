@@ -1,4 +1,4 @@
-function Resolve-VaultCredential {
+﻿function Resolve-VaultCredential {
     <#
     .SYNOPSIS
         Resolves a credential from the SecretManagement vault for a service and environment.
@@ -69,12 +69,20 @@ function Resolve-VaultCredential {
         Resolve-VaultCredential -Service jira -Environment prod -AuthType Basic
         Resolves the default Basic Auth PSCredential for jira-prod from the vault.
 
+    .EXAMPLE
+        Resolve-VaultCredential -Service jira -Environment prod -AuthType Basic -SessionOnly -Endpoint 'api/2/myself' -BaseUrl 'https://jira.example.com'
+        Prompts for a credential, validates it against the endpoint, and returns it without reading or writing the vault.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.2.0
-        Date        : 31-JUL-26
+        Version     : 1.2.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.2.1 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
+                          credential test call, so validation works against hosts whose
+                          certificate chain trips the .NET name-constraints false positive.
+                          Added a third help example.
         1.2.0 | 31JUL26 | Basic Auth conversion logic (single-label and multi-label paths)
                           now calls the shared Convert-VaultSecretToCredential helper,
                           removing duplicated PSCredential normalisation code.
@@ -278,7 +286,7 @@ function Resolve-VaultCredential {
                     'Content-Type' = 'application/json'
                 }
                 $testUri = "$($BaseUrl.TrimEnd('/'))/$($Endpoint.TrimStart('/'))"
-                Invoke-RestMethod -Uri $testUri -Headers $testHdrs -Method GET -ErrorAction Stop | Out-Null
+                Invoke-ServiceApiHttpRequest -Uri $testUri -Headers $testHdrs -Method GET -ErrorAction Stop | Out-Null
                 $testStatus = 200
             } catch {
                 $testStatus = $_.Exception.Response.StatusCode.value__

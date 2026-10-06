@@ -1,4 +1,4 @@
-function Write-VaultIndex {
+﻿function Write-VaultIndex {
     <#
     .SYNOPSIS
         Adds a credential label to the vault index for a service-environment key.

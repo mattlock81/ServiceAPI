@@ -1,4 +1,4 @@
-function Read-ServiceConfig {
+﻿function Read-ServiceConfig {
     <#
     .SYNOPSIS
         Reads the persisted service configuration from services.json.
@@ -12,12 +12,37 @@ function Read-ServiceConfig {
         If the directory or file does not exist, returns an empty hashtable. File creation
         on first load is handled by Initialise-ServiceConfig, not this function.
 
+    .OUTPUTS
+        Hashtable of service name to environment to entry. Each entry carries the whitelisted
+        fields BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint when present.
+
+    .EXAMPLE
+        $config = Read-ServiceConfig
+        $config.Keys
+
+        Lists the service names persisted in services.json (empty when the file is absent).
+
+    .EXAMPLE
+        $config = Read-ServiceConfig
+        $config['aihc']['prod'].ProbeEndpoint
+
+        Reads one persisted field for a service and environment.
+
+    .EXAMPLE
+        $current = Read-ServiceConfig
+        if (-not $current.ContainsKey('jira')) { $current['jira'] = @{} }
+
+        Shows the merge-write pattern used by Write-ServiceConfig: read, add an entry, write back.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.0
-        Date        : 01-OCT-26
+        Version     : 1.4.0
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.4.0 | 06OCT26 | Added ProbeEndpoint to the parsed field whitelist so it survives the
+                          read round-trip. Added the three help examples required by the CMF
+                          standard.
         1.3.0 | 01OCT26 | Added SSOTenant to the parsed field whitelist so it survives the
                           read round-trip after being written by Write-ServiceConfig.
         1.2.0 | 12AUG26 | Added SSODomain to the parsed field whitelist so it survives
@@ -55,6 +80,7 @@ function Read-ServiceConfig {
                 if ($src.PSObject.Properties['SSOProvider']) { $envEntry['SSOProvider'] = $src.SSOProvider }
                 if ($src.PSObject.Properties['SSODomain'])   { $envEntry['SSODomain']   = $src.SSODomain }
                 if ($src.PSObject.Properties['SSOTenant'])   { $envEntry['SSOTenant']   = $src.SSOTenant }
+                if ($src.PSObject.Properties['ProbeEndpoint']) { $envEntry['ProbeEndpoint'] = $src.ProbeEndpoint }
 
                 $result[$serviceName][$env] = $envEntry
             }

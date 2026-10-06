@@ -1,4 +1,4 @@
-function Initialise-ServiceConfig {
+﻿function Initialise-ServiceConfig {
     <#
     .SYNOPSIS
         Ensures services.json exists on first load with an empty service registry.

@@ -1,4 +1,4 @@
-function Remove-VaultIndex {
+﻿function Remove-VaultIndex {
     <#
     .SYNOPSIS
         Removes a credential label from the vault index for a service-environment key.

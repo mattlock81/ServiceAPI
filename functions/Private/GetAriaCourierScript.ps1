@@ -1,4 +1,4 @@
-
+﻿
 function Get-AriaCourierScript {
     <#
     .SYNOPSIS
@@ -30,12 +30,32 @@ function Get-AriaCourierScript {
     .OUTPUTS
         System.String — the userscript source.
 
+    .EXAMPLE
+        Get-AriaCourierScript -BaseUrl 'https://aria.example.com' | Set-Clipboard
+
+        Renders the userscript for a portal and copies it to the clipboard, ready to paste into
+        a new Violentmonkey script.
+
+    .EXAMPLE
+        $script = Get-AriaCourierScript -BaseUrl 'https://aria.example.com/tenant/my-tenant' -Port 47811
+        $script -match '@match\s+https://aria\.example\.com/\*'
+
+        Only the scheme and host of the base URL are used, so a tenant path is ignored. The
+        comparison returns $true.
+
+    .EXAMPLE
+        $script = Get-AriaCourierScript -BaseUrl 'https://aria.example.com' -Port 47900 -Key 'other-key'
+
+        Renders a script for a non-default listener port and key. Both must match the values the
+        listener (Wait-AriaCourierToken) is started with.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 01-OCT-26
+        Version     : 1.0.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.0 | 01OCT26 | Initial version. Template moved into the module from the standalone
                           userscript so it ships with the AriaOidc provider.
     #>

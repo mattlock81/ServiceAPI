@@ -1,4 +1,4 @@
-function Invoke-APIRequest {
+﻿function Invoke-APIRequest {
     <#
     .SYNOPSIS
         Executes a REST API request using either registered service configuration or explicit header-based authentication.
@@ -111,10 +111,27 @@ function Invoke-APIRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.0
-        Date        : 31-JUL-26
+        Version     : 2.8.0
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        2.8.0 | 06OCT26 | The SSO 403 refresh-and-retry now delegates to Invoke-ServiceSsoRetry,
+                          which owns both guards and returns an outcome, so this function
+                          reports the error in one place. The bearer probe is shared with the
+                          AriaOidc login through Test-ServiceBearer and Get-ServiceProbeEndpoint.
+                          A retry that fails after a successful refresh is now reported as that,
+                          not as a refresh failure.
+        2.7.2 | 06OCT26 | Guarded the SSO 403 retry. Guard 1 probes the current bearer against the
+                          service's probe endpoint and skips the refresh when it succeeds (an
+                          authorisation denial). Guard 2 skips the retry when the refreshed
+                          bearer is unchanged. Both fall back to refresh-and-retry when they
+                          cannot decide.
+        2.7.1 | 06OCT26 | SSO requests that receive HTTP 403 now refresh the token with
+                          Set-ServiceCredential -AuthType SSO -Force and re-send the request
+                          once, in place.
+        2.7.0 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest so the
+                          module can reach hosts whose certificate chain trips the .NET
+                          name-constraints false positive.
         2.6.0 | 31JUL26 | Added 'QueryParam' AuthType. For services whose login endpoint
                           expects credentials as query string parameters rather than an
                           Authorization header (e.g. Synology DSM auth.cgi). Resolves the
@@ -362,17 +379,44 @@ function Invoke-APIRequest {
         $params = @{ Method = $Method; Uri = $uri; Headers = $mergedHeaders }
         if ($Body) { $params['Body'] = $json }
 
-        return Invoke-RestMethod @params
+        return Invoke-ServiceApiHttpRequest @params
 
     } catch {
+        $originalError = $_
+
         if ($Silent) { throw }
 
-        # === 403 retry — Basic Auth only ===
-        if (-not $isExplicitAuthOverride -and $_.Exception.Response.StatusCode.value__ -eq 403) {
+        # === 403 retry — Basic and QueryParam refresh the credential; SSO refreshes the token ===
+        if (-not $isExplicitAuthOverride -and $originalError.Exception.Response.StatusCode.value__ -eq 403) {
             Write-Warning "Received 403 Forbidden. Checking cached credentials..."
 
+            # SSO — refresh the token and retry once, but only when a refresh could change the outcome
+            if ($AuthType -eq 'SSO') {
+                $retry = Invoke-ServiceSsoRetry -Service $Service -Environment $Environment `
+                    -BaseUrl $resolvedBaseUrl -Uri $uri -Method $Method -Headers $mergedHeaders -Body $json
+
+                switch ($retry.Outcome) {
+                    'Retried' {
+                        return $retry.Response
+                    }
+                    'RefreshFailed' {
+                        Write-ServiceApiHandledError -ErrorRecord $retry.ErrorRecord -Severity 'Critical' -Message 'SSO token refresh failed after 403.'
+                        return
+                    }
+                    'RetryFailed' {
+                        Write-ServiceApiHandledError -ErrorRecord $retry.ErrorRecord -Severity 'Critical' -Message 'The request failed again after the SSO token was refreshed.'
+                        return
+                    }
+                    default {
+                        # AuthorisationDenied or BearerUnchanged — surface the original 403
+                        Write-ServiceApiHandledError -ErrorRecord $originalError -Severity 'Critical'
+                        return
+                    }
+                }
+            }
+
             if ($useTokenOrSSO) {
-                throw "Token and SSO-based requests cannot be refreshed automatically via 403 retry. Re-authenticate and retry."
+                throw "Token-based and unauthenticated requests cannot be refreshed automatically via 403 retry. Re-authenticate and retry."
             }
 
             try {

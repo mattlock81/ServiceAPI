@@ -1,4 +1,4 @@
-
+﻿
 function Wait-AriaCourierToken {
     <#
     .SYNOPSIS
@@ -44,12 +44,34 @@ function Wait-AriaCourierToken {
         PSCustomObject — the accepted payload (origin, access_token, refresh_token,
         expires_in, scope).
 
+    .EXAMPLE
+        $script  = Get-AriaCourierScript -BaseUrl 'https://aria.example.com'
+        $payload = Wait-AriaCourierToken -Origin 'https://aria.example.com' -ScriptText $script
+
+        Starts the listener on the default port and waits up to 300 seconds for the courier to
+        deliver a token response. The first valid post ends the wait and is returned.
+
+    .EXAMPLE
+        $payload = Wait-AriaCourierToken -Origin $origin -ScriptText $script -TimeoutSeconds 120 -AfterStart {
+            Start-Process 'https://aria.example.com/tenant/my-tenant/automation/'
+        }
+
+        Opens the portal in the default browser once the listener is accepting, so no request can
+        arrive before it is ready.
+
+    .EXAMPLE
+        Invoke-WebRequest -Uri 'http://127.0.0.1:47811/aria-oidc-courier.user.js' -UseBasicParsing
+
+        While the listener is running, fetches the rendered courier script. Opening that URL in a
+        browser that runs Violentmonkey offers to install it.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 01-OCT-26
+        Version     : 1.0.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.0 | 01OCT26 | Initial version. Listener logic extracted from Invoke-AriaOidcLogin and
                           extended to serve the courier script for one-time install.
     #>

@@ -1,4 +1,4 @@
-
+﻿
 function ConvertFrom-JwtPayload {
     <#
     .SYNOPSIS
@@ -16,12 +16,36 @@ function ConvertFrom-JwtPayload {
     .OUTPUTS
         PSCustomObject of the token claims.
 
+    .EXAMPLE
+        $claims = ConvertFrom-JwtPayload -Jwt $accessToken
+        $claims.exp
+
+        Decodes an access token and reads its expiry claim (seconds since the Unix epoch).
+
+    .EXAMPLE
+        $claims = ConvertFrom-JwtPayload -Jwt $response.access_token
+        $clientId = if ($claims.aud -is [array]) { [string]$claims.aud[0] } else { [string]$claims.aud }
+
+        Reads the 'aud' claim, which for the Aria portal token is the OIDC client id. The claim
+        is a string or an array, so both shapes are handled.
+
+    .EXAMPLE
+        try {
+            ConvertFrom-JwtPayload -Jwt 'not-a-token'
+        } catch {
+            Write-Warning $_.Exception.Message
+        }
+
+        A value without at least two dot-separated segments throws, so a caller can fall back
+        when a token is opaque rather than a JWT.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 01-OCT-26
+        Version     : 1.0.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.0 | 01OCT26 | Initial version, for the AriaOidc provider.
     #>
 

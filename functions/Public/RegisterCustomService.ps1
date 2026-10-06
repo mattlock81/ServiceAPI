@@ -1,4 +1,4 @@
-function Register-CustomService {
+﻿function Register-CustomService {
     <#
     .SYNOPSIS
         Registers a custom API service in the service registry for use with Invoke-APIRequest.
@@ -53,6 +53,14 @@ function Register-CustomService {
         appears after 'service=tenant:' in the portal login redirect. Required by the AriaOidc
         provider to open the correct tenant portal during browser login.
 
+    .PARAMETER ProbeEndpoint
+        Optional. A relative endpoint (for example 'iaas/api/projects?$top=1') that returns 2xx
+        for any valid bearer the identity may use at all. The module sends a bearer here to tell
+        a stale token from an authorisation denial when a request returns HTTP 403, and to choose
+        which candidate bearer to use at AriaOidc login. A leading '/' is trimmed. The AriaOidc
+        provider defaults to 'iaas/api/projects?$top=1' when this is omitted; other providers
+        have no default, and the 403 retry then falls back to refreshing the token.
+
     .PARAMETER Persistent
         When specified, writes the registration to config\services.json so it is restored
         on next module import. When omitted, the registration is session-only.
@@ -76,12 +84,22 @@ function Register-CustomService {
         Register-CustomService -ServiceName internal-api -BaseUrl 'https://api.internal.com/v2' -Environment dev
         Registers an internal API for dev environment (session-only, no SSO provider).
 
+    .EXAMPLE
+        Register-CustomService -ServiceName aihc -BaseUrl 'https://aria.example.com' -SSOProvider AriaOidc -SSOTenant 'my-tenant' -ProbeEndpoint 'iaas/api/projects?$top=1' -Persistent
+        Registers an Aria service and names the cheap read-only endpoint used to test whether its
+        bearer is valid. An AriaOidc service defaults to this value when -ProbeEndpoint is omitted.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.5.0
-        Date        : 01-OCT-26
+        Version     : 2.6.0
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        2.6.0 | 06OCT26 | Added -ProbeEndpoint. The relative endpoint used to test whether a
+                          bearer is valid for the service, stored in the in-memory registry
+                          entry and persisted via Write-ServiceConfig when -Persistent is
+                          specified. A leading '/' is trimmed. Used by the SSO 403 retry and the
+                          AriaOidc bearer selection (see Get-ServiceProbeEndpoint).
         2.5.0 | 01OCT26 | Added 'AriaOidc' to the -SSOProvider ValidateSet. Added optional
                           -SSOTenant parameter, stored in the in-memory registry entry and
                           persisted to services.json via Write-ServiceConfig when -Persistent
@@ -132,6 +150,8 @@ function Register-CustomService {
 
         [string]$SSOTenant,
 
+        [string]$ProbeEndpoint,
+
         [switch]$Persistent,
         [switch]$Force
     )
@@ -179,6 +199,11 @@ function Register-CustomService {
         Write-Verbose "SSO tenant [$SSOTenant] registered for [$ServiceName-$Environment]."
     }
 
+    if ($ProbeEndpoint) {
+        $entry['ProbeEndpoint'] = $ProbeEndpoint.TrimStart('/')
+        Write-Verbose "Probe endpoint [$($entry['ProbeEndpoint'])] registered for [$ServiceName-$Environment]."
+    }
+
     $global:ServiceRegistry[$ServiceName][$Environment] = $entry
 
     if ($ServiceName -notin $global:RegisteredServices) {
@@ -197,6 +222,7 @@ function Register-CustomService {
         if ($SSOProvider) { $writeParams['SSOProvider'] = $SSOProvider }
         if ($SSODomain)   { $writeParams['SSODomain']   = $SSODomain }
         if ($SSOTenant)   { $writeParams['SSOTenant']   = $SSOTenant }
+        if ($ProbeEndpoint) { $writeParams['ProbeEndpoint'] = $entry['ProbeEndpoint'] }
 
         Write-ServiceConfig @writeParams
         Write-Verbose "Persisted [$ServiceName-$Environment] to services.json."

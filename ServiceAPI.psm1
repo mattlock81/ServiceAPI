@@ -1,11 +1,11 @@
-# ServiceAPI.psm1
+﻿# ServiceAPI.psm1
 
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.9.0
+# Version: 2.10.0
 # Author: Matthew Sillett
-# Date: 2026-10-01
+# Date: 2026-10-06
 
 # ==============================
 # Phase 0: Dependency Import
@@ -158,6 +158,10 @@ foreach ($serviceName in $persistedServices.Keys) {
             $regParams['SSOTenant'] = $entry.SSOTenant
         }
 
+        if ($entry.ContainsKey('ProbeEndpoint') -and -not [string]::IsNullOrWhiteSpace($entry.ProbeEndpoint)) {
+            $regParams['ProbeEndpoint'] = $entry.ProbeEndpoint
+        }
+
         Register-CustomService @regParams
         Write-Verbose "Loaded service [$serviceName-$env] from services.json."
     }
@@ -174,4 +178,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.9.0)"
+Write-Verbose "ServiceAPI module loaded (v2.10.0)"

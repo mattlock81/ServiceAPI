@@ -1,4 +1,4 @@
-function Invoke-SSOProviderToken {
+﻿function Invoke-SSOProviderToken {
     <#
     .SYNOPSIS
         Obtains a fresh access token from the specified SSO provider.
@@ -49,10 +49,14 @@ function Invoke-SSOProviderToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.2.0
-        Date        : 01-OCT-26
+        Version     : 1.3.0
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.3.0 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
+                          Aria CSP refresh-token and IaaS bearer-token calls, so the exchange
+                          works against hosts whose certificate chain trips the .NET
+                          name-constraints false positive.
         1.2.0 | 01OCT26 | Added an explicit 'AriaOidc' case that throws a clear message —
                           AriaOidc returns a token pair and is acquired via
                           Invoke-AriaOidcLogin, not this string-returning function.
@@ -133,7 +137,7 @@ function Invoke-SSOProviderToken {
             } | ConvertTo-Json
 
             try {
-                $refreshResponse = Invoke-RestMethod -Method Post `
+                $refreshResponse = Invoke-ServiceApiHttpRequest -Method Post `
                     -Uri "$($BaseUrl.TrimEnd('/'))/csp/gateway/am/api/login?access_token" `
                     -ContentType 'application/json' `
                     -Body $refreshBody -ErrorAction Stop
@@ -151,7 +155,7 @@ function Invoke-SSOProviderToken {
             $accessBody = @{ refreshToken = $refreshToken } | ConvertTo-Json
 
             try {
-                $accessResponse = Invoke-RestMethod -Method Post `
+                $accessResponse = Invoke-ServiceApiHttpRequest -Method Post `
                     -Uri "$($BaseUrl.TrimEnd('/'))/iaas/api/login" `
                     -ContentType 'application/json' `
                     -Body $accessBody -ErrorAction Stop

@@ -1,4 +1,4 @@
-
+﻿
 function Invoke-AriaOidcRefresh {
     <#
     .SYNOPSIS
@@ -46,12 +46,35 @@ function Invoke-AriaOidcRefresh {
         PSCustomObject with Response (the token response) and Mode (the shape that worked);
         $null when the session has ended (invalid_grant). Throws on any other failure.
 
+    .EXAMPLE
+        $result = Invoke-AriaOidcRefresh -BaseUrl 'https://aria.example.com' -RefreshToken $refreshToken
+        if ($result) { $result.Mode }
+
+        Refreshes with a held refresh token. $result.Mode names the call shape that worked, for
+        the caller to cache. A $null result means the session has ended.
+
+    .EXAMPLE
+        $result = Invoke-AriaOidcRefresh -BaseUrl 'https://aria.example.com' -RefreshToken $refreshToken `
+            -ClientId $clientId -Mode 'client-body'
+
+        Tries the cached 'client-body' shape first, then the others. The client id enables the
+        client-body and client-basic shapes.
+
+    .EXAMPLE
+        Invoke-AriaOidcRefresh -BaseUrl 'https://aria.example.com' -RefreshToken $refreshToken -ClientId $clientId -Probe
+
+        Diagnostic mode. Tries every call shape and writes the status and OAuth error of each to
+        the host, without writing any token.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 01-OCT-26
+        Version     : 1.0.2
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.2 | 06OCT26 | Added the three help examples required by the CMF standard.
+        1.0.1 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
+                          token refresh call.
         1.0.0 | 01OCT26 | Initial version. Call-shape ladder derived from the standalone
                           verification harness.
     #>
@@ -122,7 +145,7 @@ function Invoke-AriaOidcRefresh {
         $body  = @{ grant_type = 'refresh_token'; refresh_token = $rt } + $shape.Body
 
         try {
-            $resp = Invoke-RestMethod -Method Post -Uri $uri `
+            $resp = Invoke-ServiceApiHttpRequest -Method Post -Uri $uri `
                 -ContentType 'application/x-www-form-urlencoded' `
                 -Headers $shape.Headers -Body $body -ErrorAction Stop
 

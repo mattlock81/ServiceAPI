@@ -1,4 +1,4 @@
-function Get-ServiceConfig {
+﻿function Get-ServiceConfig {
     <#
     .SYNOPSIS
         Resolves BaseUrl and headers for a service/environment.
