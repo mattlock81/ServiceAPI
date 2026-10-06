@@ -1,4 +1,4 @@
-function Initialise-VaultIndex {
+﻿function Initialise-VaultIndex {
     <#
     .SYNOPSIS
         Ensures the vault credential index file exists on first load.

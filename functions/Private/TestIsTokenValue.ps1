@@ -1,4 +1,4 @@
-function Test-IsTokenValue {
+﻿function Test-IsTokenValue {
     <#
     .SYNOPSIS
         Determines whether a supplied -UseToken value is a raw token or a vault credential label.

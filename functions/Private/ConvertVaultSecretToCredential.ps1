@@ -1,4 +1,4 @@
-function Convert-VaultSecretToCredential {
+﻿function Convert-VaultSecretToCredential {
     <#
     .SYNOPSIS
         Converts a raw SecretManagement vault secret into a PSCredential.

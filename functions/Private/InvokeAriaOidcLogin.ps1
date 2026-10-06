@@ -1,4 +1,4 @@
-
+﻿
 function Invoke-AriaOidcLogin {
     <#
     .SYNOPSIS
@@ -39,6 +39,11 @@ function Invoke-AriaOidcLogin {
     .PARAMETER RefreshMode
         Optional. The refresh call shape that worked previously (see Invoke-AriaOidcRefresh).
 
+    .PARAMETER ProbeEndpoint
+        The relative endpoint used to test whether a bearer is accepted. Defaults to
+        'iaas/api/projects?$top=1'. Set-ServiceCredential supplies the service's registered
+        ProbeEndpoint when there is one (see Get-ServiceProbeEndpoint).
+
     .PARAMETER ListenerPort
         Loopback port shared with the courier script. Defaults to 47811.
 
@@ -53,12 +58,31 @@ function Invoke-AriaOidcLogin {
         $login = Invoke-AriaOidcLogin -BaseUrl 'https://aria.example.com' -Tenant 'my-tenant'
         Opens the portal and waits for the courier to deliver a token pair.
 
+    .EXAMPLE
+        $login = Invoke-AriaOidcLogin -BaseUrl 'https://aria.example.com' -Tenant 'my-tenant' `
+            -RefreshToken $cached.RefreshToken -ClientId $cached.ClientId -RefreshMode $cached.RefreshMode
+
+        Silently exchanges a cached refresh token. The browser opens only if the session has ended.
+
+    .EXAMPLE
+        $login = Invoke-AriaOidcLogin -BaseUrl 'https://aria.example.com' -Tenant 'my-tenant' `
+            -ProbeEndpoint 'iaas/api/projects?$top=1' -Verbose
+        $login.BearerMode
+
+        Names the endpoint used to test each candidate bearer. BearerMode is 'oidc' when the OIDC
+        access token was accepted and 'iaas' when the iaas/api/login token was used instead.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.0
-        Date        : 01-OCT-26
+        Version     : 1.3.0
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.3.0 | 06OCT26 | The bearer test now uses the shared Test-ServiceBearer, with the probe
+                          endpoint supplied through -ProbeEndpoint, so the login and the SSO 403
+                          retry agree on what proves a bearer is valid. Added two help examples.
+        1.2.0 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
+                          IaaS bearer probe and iaas/api/login.
         1.1.0 | 01OCT26 | Reworked as an orchestrator over Invoke-AriaOidcRefresh,
                           Get-AriaCourierScript and Wait-AriaCourierToken. Adds client id and
                           refresh call-shape caching and verified bearer selection.
@@ -78,6 +102,8 @@ function Invoke-AriaOidcLogin {
         [string]$ClientId,
 
         [string]$RefreshMode,
+
+        [string]$ProbeEndpoint = 'iaas/api/projects?$top=1',
 
         [ValidateRange(1024, 65535)]
         [int]$ListenerPort = 47811,
@@ -130,18 +156,6 @@ function Invoke-AriaOidcLogin {
         }
     }
 
-    function Test-AriaBearer {
-        param([securestring]$Token)
-        try {
-            $plain = ConvertSecureStringToPlainText -SecureString $Token
-            $null  = Invoke-RestMethod -Method Get -Uri "$BaseUrl/iaas/api/projects?`$top=1" `
-                -Headers @{ Authorization = "Bearer $plain"; Accept = 'application/json' } -ErrorAction Stop
-            return $true
-        } catch {
-            return $false
-        }
-    }
-
     $tokens = $null
 
     # -------------------------------------------------------------------------
@@ -184,16 +198,16 @@ function Invoke-AriaOidcLogin {
     $bearer     = $tokens.Access
     $bearerMode = 'oidc'
 
-    if (-not (Test-AriaBearer -Token $tokens.Access)) {
+    if (-not (Test-ServiceBearer -BaseUrl $BaseUrl -Endpoint $ProbeEndpoint -Token $tokens.Access)) {
         try {
-            $iaas = Invoke-RestMethod -Method Post -Uri "$BaseUrl/iaas/api/login" `
+            $iaas = Invoke-ServiceApiHttpRequest -Method Post -Uri "$BaseUrl/iaas/api/login" `
                 -ContentType 'application/json' `
                 -Body (@{ refreshToken = (ConvertSecureStringToPlainText -SecureString $tokens.Refresh) } | ConvertTo-Json -Compress) `
                 -ErrorAction Stop
 
             if ($iaas.token) {
                 $candidate = ConvertTo-SecureString -String $iaas.token -AsPlainText -Force
-                if (Test-AriaBearer -Token $candidate) {
+                if (Test-ServiceBearer -BaseUrl $BaseUrl -Endpoint $ProbeEndpoint -Token $candidate) {
                     $bearer     = $candidate
                     $bearerMode = 'iaas'
                 }

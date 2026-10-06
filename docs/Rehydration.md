@@ -1,8 +1,8 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.9.0 (committed as 6acd179; smoke-tested with loopback mocks, not yet run against a real Aria tenant)
-**Last updated**: 04-OCT-26
+**Version at time of writing**: 2.10.0 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
+**Last updated**: 06-OCT-26
 **Author**: Matthew Sillett
 
 > Current-state and design-decision record for this repository. `readme.md` is the identity
@@ -15,15 +15,9 @@
 
 ## 1. Current State
 
-- Last committed release is v2.9.0 (commit `6acd179`, the `AriaOidc` SSO provider). v2.8.0 added automatic vault sync for `Set-`/`Clear-ServiceCredential`.
-- v2.9.0 adds the `AriaOidc` SSO provider. It is
-  built from private functions: `Invoke-AriaOidcLogin` (orchestrator), `Invoke-AriaOidcRefresh`
-  (call-shape ladder), `Get-AriaCourierScript` (userscript template), `Wait-AriaCourierToken`
-  (loopback listener), `ConvertFrom-JwtPayload`, and `Invoke-AriaOidcProbe` (diagnostic).
-- Verification so far: every file parses, the module imports as 2.9.0, and loopback-only
-  smoke tests pass on the Windows 10 work machine (listener serves the courier script and
-  accepts or rejects posts correctly; the refresh ladder behaves correctly against a mock
-  token endpoint). Nothing has been run against a real Aria tenant.
+- v2.9.0 (commit `6acd179`) added the `AriaOidc` SSO provider. v2.8.0 added automatic vault sync for `Set-`/`Clear-ServiceCredential`.
+- v2.10.0 consolidates the highside v2.9.1 to v2.9.3 work (certificate-aware transport, SSO 403 guards, `-ProbeEndpoint`, the Phase 5 fix) and extends it. The `AriaOidc` provider is built from private functions: `Invoke-AriaOidcLogin` (orchestrator), `Invoke-AriaOidcRefresh` (call-shape ladder), `Get-AriaCourierScript` (userscript template), `Wait-AriaCourierToken` (loopback listener), `ConvertFrom-JwtPayload` and `Invoke-AriaOidcProbe` (diagnostic). Shared helpers are `Invoke-ServiceApiHttpRequest` (transport), `Invoke-ServiceSsoRetry` (403 guards), `Test-ServiceBearer` and `Get-ServiceProbeEndpoint`.
+- Verification so far, on the Windows 10 work machine: every file parses and the module imports as 2.10.0 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
 - Auth types: `Basic`, `Token`, `SSO`, `None`, `QueryParam`.
 - SSO providers: `GCloud`, `AzureCLI`, `Aria` (username/password, pre-v9 only), `AriaOidc`.
 - Loader: six-phase dot-source loader in `ServiceAPI.psm1` (dependency detection, paths,
@@ -49,6 +43,11 @@
 | D9 | The courier userscript is a template inside the module (`Get-AriaCourierScript`) and the listener serves it for a one-time install | No external file to obtain or commit. The portal origin is rendered from the service registry, so no hostname is stored in source control. |
 | D10 | The refresh call is a ladder of shapes (bare with `tm_ui`, bare, `client_id` in the body, Basic `client_id:`) and the winning shape is cached | Discovery does not advertise unauthenticated clients and `tm_ui` is not an advertised scope, so the working shape is found at run time rather than assumed. The client id is read from the access token's `aud` claim. |
 | D11 | The bearer is chosen by test: the OIDC access token if the IaaS API accepts it, otherwise the `iaas/api/login` token for the OIDC refresh token | Whether `iaas/` accepts the OIDC token directly was unknown. The pre-v9 step 2 is kept as the fallback. |
+| D12 | Every HTTP call goes through `Invoke-ServiceApiHttpRequest`, not `Invoke-RestMethod` | `Invoke-RestMethod` cannot take a per-request certificate callback, so it cannot reach hosts whose chain trips the .NET name-constraints false positive. The callback is compiled C#, because a script block cannot run on the TLS handshake thread. |
+| D13 | The validator accepts at once when the platform reports no errors. Otherwise it still requires a trusted root, uses server-sent intermediates as chain material, matches DNS names (including one-label wildcards) and IP addresses itself, and skips revocation | The relaxation is limited to the name-constraints check. Revocation endpoints are normally unreachable from a restricted network. |
+| D14 | An SSO 403 is refreshed and retried once only when that can help, decided in `Invoke-ServiceSsoRetry` (Guard 1: bearer probe; Guard 2: bearer changed) | A 403 is an authorisation denial, which a refresh cannot fix. The function returns an outcome and `Invoke-APIRequest` reports the error in one place. |
+| D15 | The probe endpoint comes from `Get-ServiceProbeEndpoint` (registry `ProbeEndpoint`, else the `AriaOidc` default, else none) and the bearer test is `Test-ServiceBearer` | The `AriaOidc` login and the 403 guard must agree on what proves a bearer is valid. |
+| D16 | PowerShell files that contain non-ASCII characters carry a UTF-8 BOM | Windows PowerShell 5.1 reads a file without a BOM as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected before this change. |
 
 ## 3. Environment Facts (Aria v9, classic tenant)
 
@@ -61,6 +60,9 @@
 - Both Confluence endpoints are TLS 1.3 only. Windows 10 SChannel cannot negotiate TLS 1.3,
   so native PowerShell on the Windows 10 work machine cannot reach them. The Aria host is
   TLS 1.2 and reachable from native PowerShell.
+- The internal Aria CA issues leaf certificates that carry IP-address names, beneath a CA whose
+  permitted subtrees are DNS-only. OpenSSL and CryptoAPI accept that chain. The .NET chain
+  engine rejects it (the name-constraints false positive).
 
 ## 4. Open Items
 
@@ -73,8 +75,11 @@
    served from `http://127.0.0.1:<port>/aria-oidc-courier.user.js` (fallback: open the URL, copy
    the text into a new script), and whether the `unsafeWindow` hooks capture the SPA's token
    call in the target browser.
-4. Windows PowerShell 5.1 compatibility of the `AriaOidc` code is unverified (the manifest
-   minimum is 5.1; the smoke tests ran on PowerShell 7).
+4. The transport (`Invoke-ServiceApiHttpRequest`), the 403 guards and the `AriaOidc` provider
+   are verified on PowerShell 7 and Windows PowerShell 5.1 only as far as parsing, import,
+   validator compilation and host-name matching. Their runtime behaviour against a tenant is
+   unverified in this repository, although the highside implementation they were taken from was
+   tested by its author.
 5. The Linux behaviour of `SecretManagement.KeePass`, and the availability of a PowerShell 7 package for RHEL 10, are unverified.
 
 ## 5. Planned Scope
@@ -88,6 +93,13 @@
 - Cross-platform (RHEL) support using OS branching at import time — previously planned,
   deferred pending the Phase 1 source.
 - Multiple vaults with a vault selector, and KeePass support. The design record is in section 7.
+- Bring the older private functions that have fewer than three help examples up to the CMF
+  minimum: the functions in `ConvertSecureStringToPlainText.ps1`, `ConvertVaultSecretToCredential.ps1`,
+  `InitializeServiceConfig.ps1`, `InitializeVaultIndex.ps1`, `InvokeCredentialPrompt.ps1`,
+  `NewStandardHeaders.ps1`, `ReadVaultIndex.ps1`, `RemoveVaultIndex.ps1`, `TestIsTokenValue.ps1`,
+  `WriteServiceApiHandledError.ps1` and `WriteVaultIndex.ps1`.
+- Remove the Windows PowerShell 5.1 limit on JSON responses of about 2 MB (`ConvertFrom-Json`),
+  for example with a `JavaScriptSerializer` fallback in `Invoke-ServiceApiHttpRequest`.
 
 ## 6. Conventions and Gotchas
 
@@ -102,6 +114,12 @@
   abandon a pending task and call it again, or requests are lost.
 - Loopback tests should use `Start-ThreadJob`, not `Start-Job`: a child process loads the whole
   PowerShell profile and delays the client by seconds.
+- Every PowerShell file that contains non-ASCII characters (for example an em dash) must be saved
+  as UTF-8 with a BOM. Without it, Windows PowerShell 5.1 misreads the file and the module fails
+  to import.
+- Every function must carry at least three `.EXAMPLE` blocks (CMF).
+- The C# validator in `Invoke-ServiceApiHttpRequest` must stay within C# 5 syntax, because
+  Windows PowerShell 5.1 compiles it with the .NET Framework compiler.
 
 ## 7. Vault Selection Design (planned, not implemented)
 
@@ -142,6 +160,7 @@ Implementation order: loader OS check and path helper, vault functions, `-Vault`
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.0 | 06-OCT-26 | Brought current to v2.10.0: certificate-aware transport, SSO 403 guards and `-ProbeEndpoint` (D12 to D15); UTF-8 BOM requirement for Windows PowerShell 5.1 (D16); open item 4 rewritten; planned scope and gotchas extended. |
 | 1.2.0 | 04-OCT-26 | Brought current to the committed v2.9.0 (6acd179); added the planned vault selection design record (section 7); skill refresh item completed. |
 | 1.1.0 | 01-OCT-26 | Courier userscript and listener built into the module as private functions; refresh call-shape ladder and verified bearer selection added (D9–D11); gotchas from smoke testing recorded. |
 | 1.0.0 | 01-OCT-26 | Initial rehydration record, written alongside v2.9.0 (`AriaOidc`). |

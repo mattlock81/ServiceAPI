@@ -1,4 +1,4 @@
-
+﻿
 function Invoke-AriaOidcProbe {
     <#
     .SYNOPSIS
@@ -24,12 +24,36 @@ function Invoke-AriaOidcProbe {
     .PARAMETER Environment
         The environment. Defaults to 'prod'.
 
+    .EXAMPLE
+        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
+
+        Runs the diagnostic for the aihc service in the default (prod) environment. The module
+        scope is required because the function is private.
+
+    .EXAMPLE
+        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc -Environment qa }
+
+        Runs the diagnostic for the qa environment of the same service.
+
+    .EXAMPLE
+        Invoke-APIRequest -Service aihc -Endpoint 'csp/gateway/am/api/loggedin/user' -AuthType SSO | Out-Null
+        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
+
+        Makes one SSO call first, which caches the token pair the probe needs, then probes.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 01-OCT-26
+        Version     : 1.0.2
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.2 | 06OCT26 | The endpoint status checks now use Invoke-ServiceApiHttpRequest
+                          (-StatusCodeVariable) instead of Invoke-WebRequest, so they work
+                          against hosts whose certificate chain trips the .NET name-constraints
+                          false positive. Added the three help examples required by the CMF
+                          standard.
+        1.0.1 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
+                          iaas/api/login diagnostic call.
         1.0.0 | 01OCT26 | Initial version. Standalone harness verification stage moved into
                           the module as a private diagnostic.
     #>
@@ -44,11 +68,16 @@ function Invoke-AriaOidcProbe {
 
     function Get-ProbeStatus {
         param([string]$Uri, [hashtable]$Headers)
+
+        $status = -1
         try {
-            [int](Invoke-WebRequest -Uri $Uri -Headers $Headers -UseBasicParsing -ErrorAction Stop).StatusCode
+            $null = Invoke-ServiceApiHttpRequest -Uri $Uri -Headers $Headers -StatusCodeVariable status -ErrorAction Stop
         } catch {
-            if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
+            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) {
+                $status = [int]$_.Exception.Response.StatusCode
+            }
         }
+        $status
     }
 
     $key   = New-ServiceKey -Service $Service -Environment $Environment
@@ -71,7 +100,7 @@ function Invoke-AriaOidcProbe {
 
     Write-Host 'IaaS login with the OIDC refresh token:' -ForegroundColor Cyan
     try {
-        $iaas = Invoke-RestMethod -Method Post -Uri "$baseUrl/iaas/api/login" -ContentType 'application/json' `
+        $iaas = Invoke-ServiceApiHttpRequest -Method Post -Uri "$baseUrl/iaas/api/login" -ContentType 'application/json' `
             -Body (@{ refreshToken = (ConvertSecureStringToPlainText -SecureString $entry.RefreshToken) } | ConvertTo-Json -Compress) `
             -ErrorAction Stop
         if ($iaas.token) {

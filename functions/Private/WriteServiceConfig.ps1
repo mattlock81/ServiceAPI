@@ -1,4 +1,4 @@
-function Write-ServiceConfig {
+﻿function Write-ServiceConfig {
     <#
     .SYNOPSIS
         Merges a service entry into services.json and writes the result to disk.
@@ -30,12 +30,37 @@ function Write-ServiceConfig {
     .PARAMETER SSOTenant
         Optional. The tenant name string to persist for the AriaOidc SSO provider.
 
+    .PARAMETER ProbeEndpoint
+        Optional. The relative probe endpoint string to persist, used to test whether a bearer
+        is valid for the service (see Get-ServiceProbeEndpoint).
+
+    .EXAMPLE
+        Write-ServiceConfig -ServiceName jira -Environment prod -BaseUrl 'https://jira.example.com'
+
+        Persists a plain service entry with no SSO settings.
+
+    .EXAMPLE
+        Write-ServiceConfig -ServiceName aihc -Environment prod -BaseUrl 'https://aria.example.com' `
+            -SSOProvider AriaOidc -SSOTenant 'my-tenant'
+
+        Persists an AriaOidc service together with its tenant.
+
+    .EXAMPLE
+        Write-ServiceConfig -ServiceName aihc -Environment prod -BaseUrl 'https://aria.example.com' `
+            -SSOProvider AriaOidc -SSOTenant 'my-tenant' -ProbeEndpoint 'iaas/api/projects?$top=1'
+
+        Persists a probe endpoint alongside the SSO settings. An entry for the same service and
+        environment is replaced; other environments and services in the file are preserved.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.0
-        Date        : 01-OCT-26
+        Version     : 1.4.0
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.4.0 | 06OCT26 | Added optional -ProbeEndpoint parameter, persisted to the services.json
+                          entry when supplied. Added the three help examples required by the
+                          CMF standard.
         1.3.0 | 01OCT26 | Added optional -SSOTenant parameter, persisted to the services.json
                           entry alongside SSOProvider and SSODomain when supplied. Used by the
                           AriaOidc SSO provider.
@@ -54,7 +79,8 @@ function Write-ServiceConfig {
         [Parameter(Mandatory)][string]$BaseUrl,
         [string]$SSOProvider,
         [string]$SSODomain,
-        [string]$SSOTenant
+        [string]$SSOTenant,
+        [string]$ProbeEndpoint
     )
 
     $configDir  = $script:ServiceApiConfigPath
@@ -84,6 +110,9 @@ function Write-ServiceConfig {
     }
     if (-not [string]::IsNullOrWhiteSpace($SSOTenant)) {
         $entry['SSOTenant'] = $SSOTenant
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ProbeEndpoint)) {
+        $entry['ProbeEndpoint'] = $ProbeEndpoint
     }
 
     $current[$ServiceName][$Environment] = $entry

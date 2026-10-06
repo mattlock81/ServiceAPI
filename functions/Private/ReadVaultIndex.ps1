@@ -1,4 +1,4 @@
-function Read-VaultIndex {
+﻿function Read-VaultIndex {
     <#
     .SYNOPSIS
         Reads the vault credential index from credential-index.json.

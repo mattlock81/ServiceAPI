@@ -1,4 +1,4 @@
-function Set-ServiceCredential {
+﻿function Set-ServiceCredential {
     <#
     .SYNOPSIS
         Stores Basic Auth, Token, or SSO credentials for a service.
@@ -100,10 +100,13 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.8.0
-        Date        : 01-OCT-26
+        Version     : 2.8.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        2.8.1 | 06OCT26 | The AriaOidc branch now passes the service's registered
+                          ProbeEndpoint (Get-ServiceProbeEndpoint) to Invoke-AriaOidcLogin, so
+                          the login and the SSO 403 retry use the same probe.
         2.8.0 | 01OCT26 | Added AriaOidc SSO provider support. The SSO branch resolves BaseUrl
                           and SSOTenant from the service registry and calls
                           Invoke-AriaOidcLogin, passing any cached refresh token so a live
@@ -339,8 +342,20 @@ function Set-ServiceCredential {
                 $cached = $global:ServiceSSOTokens[$oidcKey]
             }
 
-            $login = Invoke-AriaOidcLogin -BaseUrl $ariaEntry.BaseUrl -Tenant $ariaEntry.SSOTenant `
-                -RefreshToken $cached.RefreshToken -ClientId $cached.ClientId -RefreshMode $cached.RefreshMode
+            $loginParams = @{
+                BaseUrl      = $ariaEntry.BaseUrl
+                Tenant       = $ariaEntry.SSOTenant
+                RefreshToken = $cached.RefreshToken
+                ClientId     = $cached.ClientId
+                RefreshMode  = $cached.RefreshMode
+            }
+
+            # Honour the service's registered probe endpoint when there is one; otherwise the
+            # login uses its own default (iaas/api/projects?$top=1).
+            $probeEndpoint = Get-ServiceProbeEndpoint -Service $Service -Environment $Environment
+            if ($probeEndpoint) { $loginParams['ProbeEndpoint'] = $probeEndpoint }
+
+            $login = Invoke-AriaOidcLogin @loginParams
 
             $global:ServiceSSOTokens[$oidcKey] = @{
                 Token        = $login.Bearer

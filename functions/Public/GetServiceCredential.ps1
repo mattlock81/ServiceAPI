@@ -1,4 +1,4 @@
-function Get-ServiceCredential {
+﻿function Get-ServiceCredential {
     <#
     .SYNOPSIS
         Resolves authentication headers for a registered service.

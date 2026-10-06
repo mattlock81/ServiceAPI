@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.9.0  
+**Version**: 2.10.0  
 **Author**: Matthew Sillett  
 **Organisation**:
 
@@ -149,6 +149,36 @@ To see which call shapes and which bearer a tenant accepts (statuses only — no
 ```powershell
 & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria-example }
 ```
+
+### Certificate-Aware Transport
+
+Every request the module makes is sent by the private `Invoke-ServiceApiHttpRequest`, which replaces `Invoke-RestMethod`. `Invoke-RestMethod` cannot accept a per-request certificate validation callback, so it cannot reach hosts whose certificate chain trips the .NET name-constraints false positive: a leaf certificate that carries IP-address names, issued by a CA whose permitted subtrees are DNS-only. An internal Aria CA produces this shape.
+
+When the platform reports no certificate errors, the certificate is accepted unchanged. Otherwise the chain is rebuilt with the name check relaxed, and the following still apply:
+
+- The chain must end in a trusted root. Intermediates that the server sent are used even when no local store holds them.
+- The host name must match a DNS name or an IP address in the certificate, exactly or through a single left-most-label wildcard.
+- Revocation is not checked, because CRL and OCSP endpoints are normally unreachable from a restricted network.
+
+Output and errors match `Invoke-RestMethod`, so existing `catch` blocks continue to work. Only the scheme, host and path of a request are written to the verbose stream, because a `QueryParam` request carries credentials in its query string. On Windows PowerShell 5.1, a JSON response larger than about 2 MB cannot be parsed.
+
+### SSO 403 Handling and Probe Endpoints
+
+An HTTP 403 from Aria means authenticated but not authorised: the bearer is valid and the identity lacks permission. A 401 means the token is stale. A token refresh can fix a 401 and can never fix a 403, so an SSO request that receives a 403 is refreshed and retried once only when a refresh could change the outcome:
+
+1. Guard 1 sends the current bearer to the service's probe endpoint. When the probe succeeds, the token is valid, the 403 is an authorisation denial, and the refresh is skipped.
+2. Guard 2 compares the bearer before and after the refresh. When it is unchanged, the retry is skipped because it would repeat the 403.
+
+When a guard cannot decide, the request falls back to refresh-and-retry. The probe endpoint is resolved in this order: the `-ProbeEndpoint` registered for the service, then the `AriaOidc` default `iaas/api/projects?$top=1`, then none (Guard 1 is skipped).
+
+```powershell
+# Register a service with an explicit probe endpoint (optional for AriaOidc, which has a default)
+Register-CustomService -ServiceName aihc -BaseUrl 'https://<aria-host>' `
+    -SSOProvider AriaOidc -SSOTenant '<tenant>' `
+    -ProbeEndpoint 'iaas/api/projects?$top=1' -Persistent
+```
+
+A request that is forbidden for an identity without permission reports the original 403 and a warning that the bearer is valid. No token exchange or browser login occurs.
 
 ### Unauthenticated Service
 
@@ -340,12 +370,15 @@ ServiceAPI/
     │   ├── ConvertSecureStringToPlainText.ps1
     │   ├── ConvertVaultSecretToCredential.ps1
     │   ├── GetAriaCourierScript.ps1
+    │   ├── GetServiceProbeEndpoint.ps1
     │   ├── InitializeServiceConfig.ps1
     │   ├── InitializeVaultIndex.ps1
     │   ├── InvokeAriaOidcLogin.ps1
     │   ├── InvokeAriaOidcProbe.ps1
     │   ├── InvokeAriaOidcRefresh.ps1
     │   ├── InvokeCredentialPrompt.ps1
+    │   ├── InvokeServiceApiHttpRequest.ps1
+    │   ├── InvokeServiceSsoRetry.ps1
     │   ├── InvokeSSOProviderToken.ps1
     │   ├── NewServiceKey.ps1
     │   ├── NewStandardHeaders.ps1
@@ -354,6 +387,7 @@ ServiceAPI/
     │   ├── RemoveVaultIndex.ps1
     │   ├── ResolveVaultCredential.ps1
     │   ├── TestIsTokenValue.ps1
+    │   ├── TestServiceBearer.ps1
     │   ├── WaitAriaCourierToken.ps1
     │   ├── WriteServiceApiHandledError.ps1
     │   ├── WriteServiceConfig.ps1
@@ -371,7 +405,7 @@ User data files are stored outside the module directory and are never committed 
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` | Persistent service registry — BaseUrl, SSOProvider, SSODomain and SSOTenant per service/environment |
+| `services.json` | `$env:APPDATA\ServiceAPI\` | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
 | `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` | Machine-local vault label index — tracks which named credentials exist per service key |
 
 ---
@@ -380,6 +414,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.10.0 | 06Oct26 | Consolidates the v2.9.1 to v2.9.3 work and extends it. New private Invoke-ServiceApiHttpRequest replaces every Invoke-RestMethod call (certificate-aware transport, wildcard and IP-address name matching, shared client). SSO requests that receive HTTP 403 refresh and retry once through Invoke-ServiceSsoRetry, guarded by a bearer probe and a token-change check. New -ProbeEndpoint parameter on Register-CustomService (2.6.0), persisted via Write-ServiceConfig and Read-ServiceConfig (1.4.0) and forwarded by the Phase 5 load. Shared Test-ServiceBearer and Get-ServiceProbeEndpoint. Invoke-APIRequest 2.8.0, Set-ServiceCredential 2.8.1, Invoke-SSOProviderToken 1.3.0, Resolve-VaultCredential 1.2.1, Invoke-AriaOidcLogin 1.3.0. Every PowerShell file that contains non-ASCII characters now carries a UTF-8 BOM, so the module loads on Windows PowerShell 5.1. |
 | 2.9.0 | 01Oct26 | Added AriaOidc as a supported -SSOProvider for Aria / VCF Automation tenants. Authenticates through the portal's own OIDC browser session: new private functions Invoke-AriaOidcLogin, Invoke-AriaOidcRefresh, Get-AriaCourierScript, Wait-AriaCourierToken and ConvertFrom-JwtPayload, plus an Invoke-AriaOidcProbe diagnostic. The courier userscript is a template inside the module, served by the loopback listener for a one-time install. Invoke-AriaOidcLogin exchanges a cached refresh token silently (trying a ladder of call shapes and caching the one that works) or, when the session has ended, opens the portal in the default browser and receives the SPA's token response from the Violentmonkey courier userscript on a loopback listener (127.0.0.1 only). The refresh token is held in memory in $global:ServiceSSOTokens and never stored in the vault. Set-ServiceCredential (2.8.0) owns the AriaOidc refresh cycle and Get-ServiceCredential (2.7.0) delegates to it when stale. New -SSOTenant parameter on Register-CustomService (2.5.0), persisted via Write-ServiceConfig (1.3.0) / Read-ServiceConfig (1.3.0). Fixed module load dropping a persisted SSODomain — Phase 5 now forwards both SSODomain and SSOTenant to Register-CustomService. |
 | 2.8.0 | 17Aug26 | Set-ServiceCredential (2.7.0) and Clear-ServiceCredential (2.6.0) now keep the vault in sync automatically for service+environment-specific Basic Auth and all Token credentials — Set writes to the vault, Clear removes from it (Remove-Secret + new Remove-VaultIndex private function). Added -Label to Clear-ServiceCredential (defaults 'default') so the correct vault entry is targeted. Global/service-global/environment-wide Basic Auth storage remains session-only, as does SSO — neither has a valid vault key. Fixes a gap where Clear-ServiceCredential only ever cleared in-memory state, allowing Get-ServiceCredential to silently re-resolve a "cleared" credential from the vault. |
 | 2.7.0 | 12Aug26 | Added Aria (VMware Aria Automation) as a supported -SSOProvider. REST-native two-step CSP refresh-token / IaaS bearer-token exchange in Invoke-SSOProviderToken — no CLI tool required, unlike GCloud/AzureCLI. Sources its underlying domain-account credential via Get-ServiceCredential -AuthType Basic (label 'ssoidentity'), so the first SSO call for Aria can bootstrap that credential interactively. Domain resolves from a new -SSODomain parameter on Register-CustomService (persisted through Write-ServiceConfig/Read-ServiceConfig), falling back to a domain-joined system's own domain when omitted. |
