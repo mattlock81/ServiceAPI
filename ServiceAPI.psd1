@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.10.2'
+ModuleVersion = '2.10.3'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -107,7 +107,10 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.10.2 | 07OCT26 | Fixed Write-ServiceApiHandledError dropping its -Message when SYSCommon
+        ReleaseNotes = '2.10.3 | 07OCT26 | Write-ServiceApiHandledError now passes its -Message to Debug-Error -Message
+                  when the installed SYSCommon provides it (2.8.0 and later); older SYSCommon keeps
+                  the previous behaviour. No other changes.
+2.10.2 | 07OCT26 | Fixed Write-ServiceApiHandledError dropping its -Message when SYSCommon
                   Debug-Error is available. The context is now logged as its own entry through Write-Log
                   before the error is reported. No other changes.
 2.10.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected

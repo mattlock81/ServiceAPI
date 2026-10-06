@@ -8,12 +8,14 @@ function Write-ServiceApiHandledError {
 
         When SYSCommon's Debug-Error was found at module import, it is authoritative: the error
         record and severity are passed to it and it logs the error, and for Critical severity
-        throws (its documented behaviour). Debug-Error has no parameter for caller context, so
-        when -Message is supplied it is first logged as its own entry through SYSCommon's
-        Write-Log, at the same severity, and Debug-Error then reports the error itself. That
-        context line follows Debug-Error's own noise rule and is skipped for an HTTP 404 unless
-        $DebugPreference is active. If Write-Log is unavailable, the context is written to the
-        warning, verbose or debug stream by severity instead.
+        throws (its documented behaviour). With SYSCommon 2.8.0 or later, -Message is passed to
+        Debug-Error's own -Message parameter, which places it in front of the error in a single
+        log entry. Older SYSCommon has no such parameter, so the module detects that and logs the
+        context as its own entry through SYSCommon's Write-Log, at the same severity, before
+        Debug-Error reports the error. That separate context line follows Debug-Error's own noise
+        rule and is skipped for an HTTP 404 unless $DebugPreference is active. If Write-Log is
+        unavailable, the context is written to the warning, verbose or debug stream by severity
+        instead.
 
         When Debug-Error is not available, a lightweight local fallback reports the error by
         severity instead:
@@ -39,9 +41,10 @@ function Write-ServiceApiHandledError {
 
     .PARAMETER Message
         Optional context describing what the caller was doing, for example 'SSO token refresh
-        failed after 403.'. With Debug-Error it is logged as a separate entry through Write-Log
-        before the error is reported. In the local fallback it is placed in front of the
-        exception message.
+        failed after 403.'. With SYSCommon 2.8.0 or later it is passed to Debug-Error -Message and
+        appears in front of the error in one log entry. With older SYSCommon it is logged as a
+        separate entry through Write-Log before the error is reported. In the local fallback it is
+        placed in front of the exception message.
 
     .OUTPUTS
         None.
@@ -61,8 +64,9 @@ function Write-ServiceApiHandledError {
             Write-ServiceApiHandledError -ErrorRecord $_ -Severity 'Critical' -Message 'SSO token refresh failed after 403.'
         }
 
-        Adds context to the reported error. With Debug-Error loaded the context is logged as its
-        own entry ahead of the error. In the local fallback it prefixes the exception message.
+        Adds context to the reported error. With SYSCommon 2.8.0 or later the context and the error
+        appear in one log entry. With older SYSCommon the context is logged as its own entry ahead
+        of the error. In the local fallback it prefixes the exception message.
 
     .EXAMPLE
         catch {
@@ -74,10 +78,15 @@ function Write-ServiceApiHandledError {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.1
+        Version     : 1.1.0
         Date        : 07-OCT-26
 
         CHANGE LOG
+        1.1.0 | 07OCT26 | Uses Debug-Error -Message when the installed SYSCommon provides it
+                          (2.8.0 and later), so the context and the error share one log entry.
+                          The module detects the parameter, so older SYSCommon keeps the 1.0.1
+                          behaviour of logging the context separately through Write-Log. The local
+                          fallback is unchanged.
         1.0.1 | 07OCT26 | Fixed -Message being silently dropped when Debug-Error is available.
                           The context is now logged as its own entry through Write-Log, at the
                           same severity and skipped for an HTTP 404 under Debug-Error's noise
@@ -99,11 +108,21 @@ function Write-ServiceApiHandledError {
         [string]$Message
     )
 
-    # Debug-Error is authoritative when available. It has no parameter for caller context, so the
-    # message is logged first as its own entry through SYSCommon's Write-Log (the logger Debug-Error
-    # itself uses), then Debug-Error reports the error. For Critical severity Debug-Error rethrows
-    # after logging; Write-Log does not throw, so the order keeps the context ahead of the error.
+    # Debug-Error is authoritative when available.
+    #   SYSCommon 2.8.0 and later: Debug-Error takes the caller context through -Message and logs it
+    #   in front of the error in a single entry.
+    #   Older SYSCommon: Debug-Error has no parameter for caller context, so the message is logged
+    #   first as its own entry through SYSCommon's Write-Log (the logger Debug-Error itself uses),
+    #   then Debug-Error reports the error. For Critical severity Debug-Error rethrows after
+    #   logging; Write-Log does not throw, so the order keeps the context ahead of the error.
     if ($script:ServiceApiHasDebugError) {
+
+        # Feature-detect -Message so ServiceAPI works with either SYSCommon generation
+        $debugErrorCommand = Get-Command -Name Debug-Error -ErrorAction SilentlyContinue
+        if (-not [string]::IsNullOrWhiteSpace($Message) -and $debugErrorCommand -and $debugErrorCommand.Parameters.ContainsKey('Message')) {
+            Debug-Error -ErrorRecord $ErrorRecord -Severity $Severity -Message $Message
+            return
+        }
 
         if (-not [string]::IsNullOrWhiteSpace($Message)) {
 

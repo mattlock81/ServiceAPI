@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.10.2  
+**Version**: 2.10.3  
 **Author**: Matthew Sillett  
 **Organisation**:
 
@@ -414,6 +414,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.10.3 | 07Oct26 | Write-ServiceApiHandledError (1.1.0) passes the context to Debug-Error -Message when the installed SYSCommon provides it (2.8.0 and later), so the context and the error share one log entry. Older SYSCommon keeps the previous behaviour of logging the context separately through Write-Log. |
 | 2.10.2 | 07Oct26 | Fixed Write-ServiceApiHandledError (1.0.1) dropping its -Message when SYSCommon Debug-Error is available. Debug-Error has no parameter for caller context, so the message is now logged as its own entry through Write-Log, at the same severity and quiet for an HTTP 404, before the error is reported. The local fallback is unchanged. |
 | 2.10.1 | 06Oct26 | No functional changes. Every em dash in the PowerShell source is replaced with ASCII punctuation and the affected sentences are reworded, so the source is plain ASCII and loads on Windows PowerShell 5.1 without a byte-order mark. Help brought to the CMF three-example minimum on every function, with a complete help block for Write-ServiceApiHandledError. |
 | 2.10.0 | 06Oct26 | Consolidates the v2.9.1 to v2.9.3 work and extends it. New private Invoke-ServiceApiHttpRequest replaces every Invoke-RestMethod call (certificate-aware transport, wildcard and IP-address name matching, shared client). SSO requests that receive HTTP 403 refresh and retry once through Invoke-ServiceSsoRetry, guarded by a bearer probe and a token-change check. New -ProbeEndpoint parameter on Register-CustomService (2.6.0), persisted via Write-ServiceConfig and Read-ServiceConfig (1.4.0) and forwarded by the Phase 5 load. Shared Test-ServiceBearer and Get-ServiceProbeEndpoint. Invoke-APIRequest 2.8.0, Set-ServiceCredential 2.8.1, Invoke-SSOProviderToken 1.3.0, Resolve-VaultCredential 1.2.1, Invoke-AriaOidcLogin 1.3.0. Every PowerShell file that contains non-ASCII characters now carries a UTF-8 BOM, so the module loads on Windows PowerShell 5.1. |
