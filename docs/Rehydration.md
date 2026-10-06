@@ -1,8 +1,8 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.10.1 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
-**Last updated**: 06-OCT-26
+**Version at time of writing**: 2.10.2 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
+**Last updated**: 07-OCT-26
 **Author**: Matthew Sillett
 
 > Current-state and design-decision record for this repository. `readme.md` is the identity
@@ -18,6 +18,7 @@
 - v2.9.0 (commit `6acd179`) added the `AriaOidc` SSO provider. v2.8.0 added automatic vault sync for `Set-`/`Clear-ServiceCredential`.
 - v2.10.0 consolidates the highside v2.9.1 to v2.9.3 work (certificate-aware transport, SSO 403 guards, `-ProbeEndpoint`, the Phase 5 fix) and extends it. The `AriaOidc` provider is built from private functions: `Invoke-AriaOidcLogin` (orchestrator), `Invoke-AriaOidcRefresh` (call-shape ladder), `Get-AriaCourierScript` (userscript template), `Wait-AriaCourierToken` (loopback listener), `ConvertFrom-JwtPayload` and `Invoke-AriaOidcProbe` (diagnostic). Shared helpers are `Invoke-ServiceApiHttpRequest` (transport), `Invoke-ServiceSsoRetry` (403 guards), `Test-ServiceBearer` and `Get-ServiceProbeEndpoint`.
 - v2.10.1 changes no behaviour. It replaces every em dash in the PowerShell source with ASCII punctuation (D16), brings the help of every function to the CMF three-example minimum (the help audit reports 32 of 32 compliant), and adds a complete help block to `Write-ServiceApiHandledError`.
+- v2.10.2 fixes one defect: `Write-ServiceApiHandledError` dropped its `-Message` when SYSCommon `Debug-Error` was available. The message is now logged as its own entry through `Write-Log` first (D17).
 - Verification so far, on the Windows 10 work machine: every file parses and the module imports as 2.10.0 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
 - Auth types: `Basic`, `Token`, `SSO`, `None`, `QueryParam`.
 - SSO providers: `GCloud`, `AzureCLI`, `Aria` (username/password, pre-v9 only), `AriaOidc`.
@@ -49,6 +50,7 @@
 | D14 | An SSO 403 is refreshed and retried once only when that can help, decided in `Invoke-ServiceSsoRetry` (Guard 1: bearer probe; Guard 2: bearer changed) | A 403 is an authorisation denial, which a refresh cannot fix. The function returns an outcome and `Invoke-APIRequest` reports the error in one place. |
 | D15 | The probe endpoint comes from `Get-ServiceProbeEndpoint` (registry `ProbeEndpoint`, else the `AriaOidc` default, else none) and the bearer test is `Test-ServiceBearer` | The `AriaOidc` login and the 403 guard must agree on what proves a bearer is valid. |
 | D16 | PowerShell source files are plain ASCII, with no em dashes or other typographic characters | Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected. v2.10.0 added a BOM as a stopgap. v2.10.1 replaced all 196 em dashes (and one copyright sign and one arrow), so no BOM is needed. |
+| D17 | Handled-error context is logged separately through SYSCommon `Write-Log` before `Debug-Error` reports the error | `Debug-Error` has no parameter for caller context (it takes `-ErrorRecord`, `-Severity` and `-Bug`) and logs an HTTP response body in place of the exception message, so wrapping the context into the exception would not reliably surface it. `Write-Log` does not throw, so `Debug-Error` still controls the rethrow for Critical. The context line is skipped for an HTTP 404 under the same noise rule as `Debug-Error`, and falls back to the standard streams when `Write-Log` is absent. |
 
 ## 3. Environment Facts (Aria v9, classic tenant)
 
@@ -154,6 +156,7 @@ Implementation order: loader OS check and path helper, vault functions, `-Vault`
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.0 | 07-OCT-26 | Added D17 (handled-error context logged through Write-Log). Brought current to module v2.10.2. |
 | 1.4.0 | 06-OCT-26 | Help brought to the CMF standard on every function (audit: 32 of 32 compliant). Em dashes removed from all PowerShell source and D16 revised to a plain-ASCII rule. Brought current to module v2.10.1. |
 | 1.3.0 | 06-OCT-26 | Brought current to v2.10.0: certificate-aware transport, SSO 403 guards and `-ProbeEndpoint` (D12 to D15); UTF-8 BOM requirement for Windows PowerShell 5.1 (D16); open item 4 rewritten; planned scope and gotchas extended. |
 | 1.2.0 | 04-OCT-26 | Brought current to the committed v2.9.0 (6acd179); added the planned vault selection design record (section 7); skill refresh item completed. |
