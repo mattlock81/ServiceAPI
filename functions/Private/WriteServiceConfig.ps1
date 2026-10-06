@@ -1,4 +1,4 @@
-﻿function Write-ServiceConfig {
+function Write-ServiceConfig {
     <#
     .SYNOPSIS
         Merges a service entry into services.json and writes the result to disk.
@@ -10,7 +10,7 @@
         back to disk as formatted JSON. Creates the directory if absent.
 
         Called by Register-CustomService when -Persistent is specified. Does not affect
-        in-memory registry state — that is managed by Register-CustomService directly.
+        in-memory registry state; that is managed by Register-CustomService directly.
 
     .PARAMETER ServiceName
         The service name key to write (e.g., google, jira).
@@ -54,10 +54,12 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.4.0
+        Version     : 1.4.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.4.0 | 06OCT26 | Added optional -ProbeEndpoint parameter, persisted to the services.json
                           entry when supplied. Added the three help examples required by the
                           CMF standard.
@@ -123,6 +125,6 @@
             Set-Content -LiteralPath $configPath -Encoding UTF8 -Force
         Write-Verbose "ServiceAPI: Persisted service [$ServiceName-$Environment] to: $configPath"
     } catch {
-        throw "ServiceAPI: Failed to write services.json — $_"
+        throw "ServiceAPI: Failed to write services.json: $_"
     }
 }

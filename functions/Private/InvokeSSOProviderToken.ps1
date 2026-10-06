@@ -1,4 +1,4 @@
-﻿function Invoke-SSOProviderToken {
+function Invoke-SSOProviderToken {
     <#
     .SYNOPSIS
         Obtains a fresh access token from the specified SSO provider.
@@ -9,13 +9,13 @@
         This function is not exported and is not intended for direct caller use.
 
         Supported providers:
-            GCloud   — requires Google Cloud SDK (gcloud CLI)
-            AzureCLI — requires Azure CLI (az CLI)
-            Aria     — VMware Aria Automation. Requires -Credential (domain identity,
+            GCloud   - requires Google Cloud SDK (gcloud CLI)
+            AzureCLI - requires Azure CLI (az CLI)
+            Aria     - VMware Aria Automation. Requires -Credential (domain identity,
                        UserName in 'username@domain' or plain 'username' form) and
                        -Domain. Performs the two-step CSP refresh-token then IaaS
-                       bearer-token exchange over REST — no CLI tool required.
-            AriaOidc — not handled here. It returns a token pair (access + refresh) rather
+                       bearer-token exchange over REST, with no CLI tool required.
+            AriaOidc - not handled here. It returns a token pair (access + refresh) rather
                        than a single string, so it is acquired by Invoke-AriaOidcLogin.
 
     .PARAMETER Provider
@@ -32,7 +32,7 @@
 
     .PARAMETER BaseUrl
         Required only for the Aria provider. The Aria Automation appliance base URL
-        (e.g. https://aria.example.com) — the CSP and IaaS endpoints are appended to
+        (e.g. https://aria.example.com); the CSP and IaaS endpoints are appended to
         this. Ignored by all other providers.
 
     .EXAMPLE
@@ -49,19 +49,21 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.0
+        Version     : 1.3.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.3.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.3.0 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
                           Aria CSP refresh-token and IaaS bearer-token calls, so the exchange
                           works against hosts whose certificate chain trips the .NET
                           name-constraints false positive.
-        1.2.0 | 01OCT26 | Added an explicit 'AriaOidc' case that throws a clear message —
+        1.2.0 | 01OCT26 | Added an explicit 'AriaOidc' case that throws a clear message:
                           AriaOidc returns a token pair and is acquired via
                           Invoke-AriaOidcLogin, not this string-returning function.
                           Supported-provider error text updated.
-        1.1.0 | 12AUG26 | Added Aria provider — two-step CSP refresh-token / IaaS
+        1.1.0 | 12AUG26 | Added Aria provider: two-step CSP refresh-token / IaaS
                           bearer-token REST exchange. Added optional -Credential, -Domain,
                           -BaseUrl parameters, unused by and non-breaking for GCloud and
                           AzureCLI. Errors routed through Write-ServiceApiHandledError for
@@ -75,13 +77,13 @@
         [Parameter(Mandatory)]
         [string]$Provider,
 
-        # Aria only — ignored by GCloud and AzureCLI.
+        # Aria only; ignored by GCloud and AzureCLI.
         [pscredential]$Credential,
 
-        # Aria only — ignored by GCloud and AzureCLI.
+        # Aria only; ignored by GCloud and AzureCLI.
         [string]$Domain,
 
-        # Aria only — ignored by GCloud and AzureCLI.
+        # Aria only; ignored by GCloud and AzureCLI.
         [string]$BaseUrl
     )
 
@@ -89,7 +91,7 @@
 
     switch ($Provider) {
         'GCloud' {
-            # Requires Google Cloud SDK — gcloud auth application-default login must have been run
+            # Requires Google Cloud SDK: gcloud auth application-default login must have been run
             if (-not (Get-Command -Name gcloud -ErrorAction SilentlyContinue)) {
                 throw "SSO provider [GCloud] requires the Google Cloud SDK. Install from https://cloud.google.com/sdk/docs/install"
             }
@@ -100,7 +102,7 @@
         }
 
         'AzureCLI' {
-            # Requires Azure CLI — az login must have been run
+            # Requires Azure CLI: az login must have been run
             if (-not (Get-Command -Name az -ErrorAction SilentlyContinue)) {
                 throw "SSO provider [AzureCLI] requires the Azure CLI. Install from https://docs.microsoft.com/cli/azure/install-azure-cli"
             }
@@ -111,7 +113,7 @@
         }
 
         'Aria' {
-            # REST-native provider — no CLI tool required. Caller (Set-ServiceCredential /
+            # REST-native provider: no CLI tool required. Caller (Set-ServiceCredential /
             # Get-ServiceCredential) resolves -Credential, -Domain, and -BaseUrl before dispatch.
             if (-not $Credential) {
                 throw "SSO provider [Aria] requires -Credential."
@@ -129,7 +131,7 @@
             }
             $ariaPassword = $Credential.GetNetworkCredential().Password
 
-            # Step 1 — CSP refresh token (long-lived, ~90 day validity per Aria docs)
+            # Step 1: CSP refresh token (long-lived, ~90 day validity per Aria docs)
             $refreshBody = @{
                 username = $ariaUserName
                 password = $ariaPassword
@@ -142,7 +144,7 @@
                     -ContentType 'application/json' `
                     -Body $refreshBody -ErrorAction Stop
             } catch {
-                throw "Aria refresh token request failed — $_"
+                throw "Aria refresh token request failed: $_"
             }
 
             $refreshToken = $refreshResponse.refresh_token
@@ -150,7 +152,7 @@
                 throw "Aria refresh token exchange returned no refresh_token. Check username/password/domain."
             }
 
-            # Step 2 — IaaS bearer token, short-lived. Exact expiry window varies by tenancy —
+            # Step 2: IaaS bearer token, short-lived. Exact expiry window varies by tenancy;
             # caller applies its own cache expiry rather than trusting a fixed value here.
             $accessBody = @{ refreshToken = $refreshToken } | ConvertTo-Json
 
@@ -160,7 +162,7 @@
                     -ContentType 'application/json' `
                     -Body $accessBody -ErrorAction Stop
             } catch {
-                throw "Aria bearer token request failed — $_"
+                throw "Aria bearer token request failed: $_"
             }
 
             $token = $accessResponse.token

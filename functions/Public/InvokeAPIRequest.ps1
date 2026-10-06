@@ -1,4 +1,4 @@
-﻿function Invoke-APIRequest {
+function Invoke-APIRequest {
     <#
     .SYNOPSIS
         Executes a REST API request using either registered service configuration or explicit header-based authentication.
@@ -94,27 +94,29 @@
 
     .EXAMPLE
         Invoke-APIRequest -Service synology -AuthType QueryParam -Endpoint 'auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={user}&passwd={pass}&session=ServiceAPI&format=sid'
-        Vault-backed credential substituted into {user}/{pass} placeholders — no Authorization header sent.
+        Vault-backed credential substituted into {user}/{pass} placeholders; no Authorization header is sent.
 
     .EXAMPLE
         Invoke-APIRequest -Service jira -Endpoint 'api/2/myself' -AuthType Basic -SessionOnly
-        Basic Auth request bypassing vault — prompts interactively, session store only.
+        Basic Auth request bypassing vault; prompts interactively, session store only.
 
     .EXAMPLE
         Invoke-APIRequest -Service newapi -Endpoint 'resource'
-        Unregistered service — prompts for BaseUrl and session/permanent choice.
+        Unregistered service: prompts for BaseUrl and session/permanent choice.
 
     .EXAMPLE
         $headers = @{ Authorization = "Bearer $token" }
         Invoke-APIRequest -BaseUrl 'https://api.example.com' -Headers $headers -Endpoint 'resource'
-        Explicit header override mode — bypasses all credential resolution.
+        Explicit header override mode: bypasses all credential resolution.
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.8.0
+        Version     : 2.8.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        2.8.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.8.0 | 06OCT26 | The SSO 403 refresh-and-retry now delegates to Invoke-ServiceSsoRetry,
                           which owns both guards and returns an outcome, so this function
                           reports the error in one place. The bearer probe is shared with the
@@ -143,7 +145,7 @@
                           registered service or Authorization header requirement.
                           Updated Service-required error message accordingly.
         2.5.1 | 17MAY26 | Added 'None' to -AuthType ValidateSet. AuthType None skips all
-                          credential resolution — suitable for unauthenticated local services.
+                          credential resolution, which suits unauthenticated local services.
                           $useTokenOrSSO guard updated to include None, preventing 403 retry.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] and
                           -Label parameters. Auth mode selection is now explicit and tab-completed.
@@ -184,11 +186,11 @@
         [Parameter(Mandatory)]
         [string]$Endpoint,
 
-        # Authentication type — tab-completed, explicit, unambiguous.
+        # Authentication type: tab-completed, explicit, unambiguous.
         [ValidateSet('Basic', 'Token', 'SSO', 'None', 'QueryParam')]
         [string]$AuthType = 'Basic',
 
-        # Vault credential label — applies to Basic and Token. Defaults to 'default'.
+        # Vault credential label: applies to Basic and Token. Defaults to 'default'.
         [string]$Label = 'default',
 
         [string]$Environment = 'prod',
@@ -211,7 +213,7 @@
         $overrideHeaders        = $null
         $authorizationValue     = $null
 
-        # === Inline service registration — fires when service is not in the registry ===
+        # === Inline service registration: fires when service is not in the registry ===
         if (-not [string]::IsNullOrWhiteSpace($Service) -and
             -not $global:ServiceRegistry.ContainsKey($Service)) {
 
@@ -252,7 +254,7 @@
         }
 
         # === Explicit auth override detection ===
-        # Only fires for Basic auth without explicit AuthType specification — prevents
+        # Only fires for Basic auth without explicit AuthType specification; prevents
         # a caller-supplied Authorization header from bypassing Token or SSO resolution.
         if ($AuthType -eq 'Basic' -and
             -not [string]::IsNullOrWhiteSpace($BaseUrl) -and
@@ -277,13 +279,13 @@
         }
 
         if ($isExplicitAuthOverride) {
-            # Explicit override — use standard headers as base and overlay caller-supplied headers
+            # Explicit override: use standard headers as base and overlay caller-supplied headers
             $resolvedBaseUrl = $BaseUrl
             $mergedHeaders   = New-StandardHeaders
             $overrideHeaders.Keys | ForEach-Object { $mergedHeaders[$_] = $overrideHeaders[$_] }
 
         } elseif ($AuthType -eq 'None' -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) {
-            # AuthType None with direct BaseUrl — no service registration or credential resolution required
+            # AuthType None with direct BaseUrl: no service registration or credential resolution required
             $resolvedBaseUrl = $BaseUrl
             $mergedHeaders   = New-StandardHeaders
             if ($Headers -and $Headers -is [System.Collections.IDictionary]) {
@@ -291,7 +293,7 @@
             }
 
         } elseif ($AuthType -eq 'QueryParam') {
-            # QueryParam — credential delivered via {user}/{pass} placeholders in the
+            # QueryParam: credential delivered via {user}/{pass} placeholders in the
             # endpoint string rather than an Authorization header. Requires a registered
             # -Service (BaseUrl resolved from the registry, same as config-driven mode).
             if ([string]::IsNullOrWhiteSpace($Service)) {
@@ -386,11 +388,11 @@
 
         if ($Silent) { throw }
 
-        # === 403 retry — Basic and QueryParam refresh the credential; SSO refreshes the token ===
+        # === 403 retry: Basic and QueryParam refresh the credential; SSO refreshes the token ===
         if (-not $isExplicitAuthOverride -and $originalError.Exception.Response.StatusCode.value__ -eq 403) {
             Write-Warning "Received 403 Forbidden. Checking cached credentials..."
 
-            # SSO — refresh the token and retry once, but only when a refresh could change the outcome
+            # SSO: refresh the token and retry once, but only when a refresh could change the outcome
             if ($AuthType -eq 'SSO') {
                 $retry = Invoke-ServiceSsoRetry -Service $Service -Environment $Environment `
                     -BaseUrl $resolvedBaseUrl -Uri $uri -Method $Method -Headers $mergedHeaders -Body $json
@@ -408,7 +410,7 @@
                         return
                     }
                     default {
-                        # AuthorisationDenied or BearerUnchanged — surface the original 403
+                        # AuthorisationDenied or BearerUnchanged: surface the original 403
                         Write-ServiceApiHandledError -ErrorRecord $originalError -Severity 'Critical'
                         return
                     }

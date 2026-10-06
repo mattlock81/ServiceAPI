@@ -1,4 +1,4 @@
-﻿function Get-ServiceCredential {
+function Get-ServiceCredential {
     <#
     .SYNOPSIS
         Resolves authentication headers for a registered service.
@@ -15,7 +15,7 @@
         Token (-AuthType Token):
         When SecretManagement is available and -SessionOnly is not set, resolves a token
         from the vault using the specified -Label via Resolve-VaultCredential. The token
-        value determines the header format — no key component produces a Bearer header,
+        value determines the header format: no key component produces a Bearer header,
         key:secret produces a Basic header. When vault is unavailable or -SessionOnly is
         set, falls back to $global:ServiceTokens with interactive prompt.
 
@@ -46,7 +46,7 @@
 
     .PARAMETER SessionOnly
         Bypasses vault lookup and storage. Prompts interactively and stores the result
-        in the session store only. Applies to Basic and Token — ignored for SSO.
+        in the session store only. Applies to Basic and Token; ignored for SSO.
 
     .PARAMETER Endpoint
         Passed through to Resolve-VaultCredential for test call validation.
@@ -56,7 +56,7 @@
 
     .EXAMPLE
         Get-ServiceCredential -Service jira -Environment prod
-        Resolves Basic Auth headers for jira in prod — vault first, then fallback chain.
+        Resolves Basic Auth headers for jira in prod: vault first, then fallback chain.
 
     .EXAMPLE
         Get-ServiceCredential -Service jira -Environment prod -AuthType Basic -Label matt
@@ -76,14 +76,16 @@
 
     .EXAMPLE
         Get-ServiceCredential -Service jira -Environment prod -SessionOnly
-        Prompts interactively for Basic Auth — vault bypassed, session store only.
+        Prompts interactively for Basic Auth: vault bypassed, session store only.
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.7.0
-        Date        : 01-OCT-26
+        Version     : 2.7.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        2.7.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.7.0 | 01OCT26 | Added AriaOidc SSO provider support to the SSO refresh block. When
                           an AriaOidc token is stale, refresh is delegated to
                           Set-ServiceCredential -AuthType SSO -Force, which owns the cycle
@@ -93,7 +95,7 @@
                           from the token response. Other providers unchanged.
         2.6.1 | 12AUG26 | Added Aria SSO provider support to the SSO refresh block.
                           Mirrors the Aria credential/domain resolution in
-                          Set-ServiceCredential — sources the domain-account credential
+                          Set-ServiceCredential. It sources the domain-account credential
                           via a nested Get-ServiceCredential -AuthType Basic call (label
                           'ssoidentity') and resolves domain from registry SSODomain or a
                           domain-joined system, then dispatches to Invoke-SSOProviderToken
@@ -138,12 +140,12 @@
         [ValidateSet('Basic', 'Token', 'SSO', 'QueryParam')]
         [string]$AuthType = 'Basic',
 
-        # Vault label — applies to Basic and Token auth types. Defaults to 'default'.
+        # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
         [string]$Environment = 'prod',
 
-        # Bypasses vault lookup and storage — session store only. Ignored for SSO.
+        # Bypasses vault lookup and storage; session store only. Ignored for SSO.
         [switch]$SessionOnly,
 
         # Passed through to Resolve-VaultCredential for test call validation.
@@ -155,12 +157,12 @@
     $headers = New-StandardHeaders -Service $Service
 
     # =========================================================================
-    # QUERYPARAM MODE — credential delivered via query string, not a header
+    # QUERYPARAM MODE: credential delivered via query string, not a header
     # =========================================================================
     # Reuses the Basic Auth resolution path entirely (vault, four-tier fallback,
     # interactive prompt) by recursing with -AuthType Basic, then decodes the
     # resulting Authorization header back into a plain username/password object.
-    # No Authorization header is set — callers using QueryParam substitute the
+    # No Authorization header is set; callers using QueryParam substitute the
     # returned values directly into the endpoint string.
     if ($AuthType -eq 'QueryParam') {
 
@@ -188,7 +190,7 @@
     }
 
     # =========================================================================
-    # SSO MODE — short-lived OAuth Bearer token with lazy refresh
+    # SSO MODE: short-lived OAuth Bearer token with lazy refresh
     # =========================================================================
     if ($AuthType -eq 'SSO') {
 
@@ -198,7 +200,7 @@
 
         $key = New-ServiceKey -Service $Service -Environment $Environment
 
-        # Resolve provider from service registry — never supplied by caller
+        # Resolve provider from service registry; never supplied by caller
         $ssoProvider = $null
         if ($global:ServiceRegistry.ContainsKey($Service) -and
             $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
@@ -217,7 +219,7 @@
             $ssoStale = [DateTime]::UtcNow -ge $entry.ExpiresAt.AddMinutes(-5)
 
             if ($ssoStale -and $entry.Provider -eq 'AriaOidc') {
-                # AriaOidc owns its refresh cycle in Set-ServiceCredential — it reuses the cached
+                # AriaOidc owns its refresh cycle in Set-ServiceCredential; it reuses the cached
                 # refresh token and falls back to a browser login if the session has ended.
                 Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [AriaOidc]."
                 Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force
@@ -226,7 +228,7 @@
                 Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [$($entry.Provider)]."
 
                 if ($entry.Provider -eq 'Aria') {
-                    # Mirrors the Aria resolution in Set-ServiceCredential's SSO branch —
+                    # Mirrors the Aria resolution in Set-ServiceCredential's SSO branch:
                     # keep both in sync if either changes.
                     $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
                     $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
@@ -281,7 +283,7 @@
             return $headers
         }
 
-        # No stored SSO token — delegate to Set-ServiceCredential
+        # No stored SSO token: delegate to Set-ServiceCredential
         Write-Verbose "No SSO token found for [$key]. Delegating to Set-ServiceCredential."
         Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force
 
@@ -306,7 +308,7 @@
         $key = New-ServiceKey -Service $Service -Environment $Environment
 
         # =====================================================================
-        # VAULT PATH — when SecretManagement is available and not -SessionOnly
+        # VAULT PATH: when SecretManagement is available and not -SessionOnly
         # =====================================================================
         if ($script:ServiceApiHasSecretManagement -and -not $SessionOnly) {
 
@@ -342,7 +344,7 @@
         }
 
         # =====================================================================
-        # NON-VAULT PATH — SecretManagement unavailable or -SessionOnly
+        # NON-VAULT PATH: SecretManagement unavailable or -SessionOnly
         # =====================================================================
         if ($global:ServiceTokens.ContainsKey($key)) {
             $token = ConvertSecureStringToPlainText -SecureString $global:ServiceTokens[$key]
@@ -350,7 +352,7 @@
             return $headers
         }
 
-        # Token not found — prompt interactively
+        # Token not found: prompt interactively
         Write-Verbose "No token found for [$key]. Prompting interactively."
         Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Token -Label $Label
 
@@ -364,12 +366,12 @@
     }
 
     # =========================================================================
-    # BASIC AUTH MODE — default
+    # BASIC AUTH MODE: default
     # =========================================================================
     $key = New-ServiceKey -Service $Service -Environment $Environment
 
     # =====================================================================
-    # VAULT PATH — when SecretManagement is available and not -SessionOnly
+    # VAULT PATH: when SecretManagement is available and not -SessionOnly
     # =====================================================================
     if ($script:ServiceApiHasSecretManagement -and -not $SessionOnly) {
 
@@ -395,12 +397,12 @@
             return $headers
         }
 
-        # Vault returned null — user cancelled
+        # Vault returned null: user cancelled
         throw "Credential resolution cancelled for [$key]."
     }
 
     # =====================================================================
-    # NON-VAULT PATH — four-tier in-memory fallback then interactive prompt
+    # NON-VAULT PATH: four-tier in-memory fallback then interactive prompt
     # =====================================================================
     $cred = $null
 
@@ -436,7 +438,7 @@
         }
     }
 
-    # No credential resolved — prompt and store for future use
+    # No credential resolved: prompt and store for future use
     if (-not $cred) {
         Write-Verbose "No stored Basic Auth credential for [$Service-$Environment]. Prompting."
         try {

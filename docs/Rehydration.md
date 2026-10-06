@@ -1,7 +1,7 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.10.0 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
+**Version at time of writing**: 2.10.1 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
 **Last updated**: 06-OCT-26
 **Author**: Matthew Sillett
 
@@ -17,6 +17,7 @@
 
 - v2.9.0 (commit `6acd179`) added the `AriaOidc` SSO provider. v2.8.0 added automatic vault sync for `Set-`/`Clear-ServiceCredential`.
 - v2.10.0 consolidates the highside v2.9.1 to v2.9.3 work (certificate-aware transport, SSO 403 guards, `-ProbeEndpoint`, the Phase 5 fix) and extends it. The `AriaOidc` provider is built from private functions: `Invoke-AriaOidcLogin` (orchestrator), `Invoke-AriaOidcRefresh` (call-shape ladder), `Get-AriaCourierScript` (userscript template), `Wait-AriaCourierToken` (loopback listener), `ConvertFrom-JwtPayload` and `Invoke-AriaOidcProbe` (diagnostic). Shared helpers are `Invoke-ServiceApiHttpRequest` (transport), `Invoke-ServiceSsoRetry` (403 guards), `Test-ServiceBearer` and `Get-ServiceProbeEndpoint`.
+- v2.10.1 changes no behaviour. It replaces every em dash in the PowerShell source with ASCII punctuation (D16), brings the help of every function to the CMF three-example minimum (the help audit reports 32 of 32 compliant), and adds a complete help block to `Write-ServiceApiHandledError`.
 - Verification so far, on the Windows 10 work machine: every file parses and the module imports as 2.10.0 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
 - Auth types: `Basic`, `Token`, `SSO`, `None`, `QueryParam`.
 - SSO providers: `GCloud`, `AzureCLI`, `Aria` (username/password, pre-v9 only), `AriaOidc`.
@@ -47,7 +48,7 @@
 | D13 | The validator accepts at once when the platform reports no errors. Otherwise it still requires a trusted root, uses server-sent intermediates as chain material, matches DNS names (including one-label wildcards) and IP addresses itself, and skips revocation | The relaxation is limited to the name-constraints check. Revocation endpoints are normally unreachable from a restricted network. |
 | D14 | An SSO 403 is refreshed and retried once only when that can help, decided in `Invoke-ServiceSsoRetry` (Guard 1: bearer probe; Guard 2: bearer changed) | A 403 is an authorisation denial, which a refresh cannot fix. The function returns an outcome and `Invoke-APIRequest` reports the error in one place. |
 | D15 | The probe endpoint comes from `Get-ServiceProbeEndpoint` (registry `ProbeEndpoint`, else the `AriaOidc` default, else none) and the bearer test is `Test-ServiceBearer` | The `AriaOidc` login and the 403 guard must agree on what proves a bearer is valid. |
-| D16 | PowerShell files that contain non-ASCII characters carry a UTF-8 BOM | Windows PowerShell 5.1 reads a file without a BOM as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected before this change. |
+| D16 | PowerShell source files are plain ASCII, with no em dashes or other typographic characters | Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected. v2.10.0 added a BOM as a stopgap. v2.10.1 replaced all 196 em dashes (and one copyright sign and one arrow), so no BOM is needed. |
 
 ## 3. Environment Facts (Aria v9, classic tenant)
 
@@ -93,11 +94,6 @@
 - Cross-platform (RHEL) support using OS branching at import time — previously planned,
   deferred pending the Phase 1 source.
 - Multiple vaults with a vault selector, and KeePass support. The design record is in section 7.
-- Bring the older private functions that have fewer than three help examples up to the CMF
-  minimum: the functions in `ConvertSecureStringToPlainText.ps1`, `ConvertVaultSecretToCredential.ps1`,
-  `InitializeServiceConfig.ps1`, `InitializeVaultIndex.ps1`, `InvokeCredentialPrompt.ps1`,
-  `NewStandardHeaders.ps1`, `ReadVaultIndex.ps1`, `RemoveVaultIndex.ps1`, `TestIsTokenValue.ps1`,
-  `WriteServiceApiHandledError.ps1` and `WriteVaultIndex.ps1`.
 - Remove the Windows PowerShell 5.1 limit on JSON responses of about 2 MB (`ConvertFrom-Json`),
   for example with a `JavaScriptSerializer` fallback in `Invoke-ServiceApiHttpRequest`.
 
@@ -114,9 +110,7 @@
   abandon a pending task and call it again, or requests are lost.
 - Loopback tests should use `Start-ThreadJob`, not `Start-Job`: a child process loads the whole
   PowerShell profile and delays the client by seconds.
-- Every PowerShell file that contains non-ASCII characters (for example an em dash) must be saved
-  as UTF-8 with a BOM. Without it, Windows PowerShell 5.1 misreads the file and the module fails
-  to import.
+- PowerShell source must be plain ASCII. Do not use em dashes, smart quotes, arrows or the copyright sign in code, comments, strings or help; use a colon, semicolon, comma or hyphen instead. If a non-ASCII character is unavoidable, save that file as UTF-8 with a BOM, because Windows PowerShell 5.1 otherwise misreads it and the module fails to import.
 - Every function must carry at least three `.EXAMPLE` blocks (CMF).
 - The C# validator in `Invoke-ServiceApiHttpRequest` must stay within C# 5 syntax, because
   Windows PowerShell 5.1 compiles it with the .NET Framework compiler.
@@ -160,6 +154,7 @@ Implementation order: loader OS check and path helper, vault functions, `-Vault`
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.4.0 | 06-OCT-26 | Help brought to the CMF standard on every function (audit: 32 of 32 compliant). Em dashes removed from all PowerShell source and D16 revised to a plain-ASCII rule. Brought current to module v2.10.1. |
 | 1.3.0 | 06-OCT-26 | Brought current to v2.10.0: certificate-aware transport, SSO 403 guards and `-ProbeEndpoint` (D12 to D15); UTF-8 BOM requirement for Windows PowerShell 5.1 (D16); open item 4 rewritten; planned scope and gotchas extended. |
 | 1.2.0 | 04-OCT-26 | Brought current to the committed v2.9.0 (6acd179); added the planned vault selection design record (section 7); skill refresh item completed. |
 | 1.1.0 | 01-OCT-26 | Courier userscript and listener built into the module as private functions; refresh call-shape ladder and verified bearer selection added (D9–D11); gotchas from smoke testing recorded. |

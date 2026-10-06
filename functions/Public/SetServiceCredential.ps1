@@ -1,4 +1,4 @@
-﻿function Set-ServiceCredential {
+function Set-ServiceCredential {
     <#
     .SYNOPSIS
         Stores Basic Auth, Token, or SSO credentials for a service.
@@ -15,7 +15,7 @@
         Only the service+environment-specific storage mode (-Service and -Environment
         both supplied) also writes to the SecretManagement vault, under the label given
         by -Label. Global, service-global, and environment-wide storage remain
-        session-only (in-memory) — the vault's naming convention
+        session-only (in-memory) because the vault's naming convention
         ({service}-{label}-{environment}) has no valid key for those modes, and
         Get-ServiceCredential's vault resolution path only ever looks up the exact
         service+environment key.
@@ -38,10 +38,10 @@
         domain-account credential via Get-ServiceCredential -AuthType Basic (vault-backed,
         same 'aria' service, label defaults to 'ssoidentity') rather than a CLI tool. If
         no Basic credential is yet stored under that label, the underlying vault/prompt
-        flow triggers automatically and offers to store it — so the first SSO call for
+        flow triggers automatically and offers to store it, so the first SSO call for
         Aria can also bootstrap the Basic credential in the same step. Domain is resolved
         from the service registry's SSODomain field, falling back to the domain of a
-        domain-joined system when SSODomain is not set — non-domain-joined systems must
+        domain-joined system when SSODomain is not set; non-domain-joined systems must
         have SSODomain registered explicitly.
 
         The AriaOidc provider is a second Aria path that authenticates through the portal's own
@@ -100,10 +100,12 @@
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.8.1
+        Version     : 2.8.2
         Date        : 06-OCT-26
 
         CHANGE LOG
+        2.8.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.8.1 | 06OCT26 | The AriaOidc branch now passes the service's registered
                           ProbeEndpoint (Get-ServiceProbeEndpoint) to Invoke-AriaOidcLogin, so
                           the login and the SSO 403 retry use the same probe.
@@ -113,7 +115,7 @@
                           browser session refreshes silently. The returned token pair is cached
                           in $global:ServiceSSOTokens with a RefreshToken field and an expiry
                           taken from the token response. This branch also owns the AriaOidc
-                          refresh cycle — Get-ServiceCredential delegates to it when stale.
+                          refresh cycle; Get-ServiceCredential delegates to it when stale.
                           GCloud, AzureCLI and Aria paths unchanged.
         2.7.0 | 17AUG26 | Basic Auth service+environment-specific storage now also writes
                           to the SecretManagement vault (Set-Secret + Write-VaultIndex),
@@ -122,7 +124,7 @@
                           in-memory state and vault state to silently diverge whenever a
                           vault entry existed from a prior interactive prompt via
                           Resolve-VaultCredential. Global, service-global, and
-                          environment-wide storage modes remain session-only — no valid
+                          environment-wide storage modes remain session-only because no valid
                           vault key exists for them.
         2.6.0 | 12AUG26 | Added Aria SSO provider support. SSO branch now sources the
                           Aria domain-account credential via Get-ServiceCredential
@@ -130,13 +132,13 @@
                           registry SSODomain or a domain-joined system, then dispatches
                           to Invoke-SSOProviderToken -Provider Aria with -Credential,
                           -Domain, and -BaseUrl. GCloud and AzureCLI paths unchanged.
-        2.5.1 | 17MAY26 | Fixed Token mode vault write — Set-Secret and Write-VaultIndex
+        2.5.1 | 17MAY26 | Fixed Token mode vault write: Set-Secret and Write-VaultIndex
                           now called from Set-ServiceCredential Token path. Previously tokens
                           were written to session store only and lost between sessions.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] parameter.
                           Added -Label parameter for named vault credential storage. Auth mode
                           selection is now explicit and tab-completed. -SessionOnly not applicable
-                          to Set-ServiceCredential — applies to Get-ServiceCredential only.
+                          to Set-ServiceCredential; applies to Get-ServiceCredential only.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added -UseSSO parameter for SSO-based token storage.
         2.1.0 | 28MAR26 | Added plain string token input support and Bearer prefix normalisation.
@@ -167,7 +169,7 @@
 
         [pscredential]$Credential,
 
-        # Vault label — applies to Basic and Token auth types. Defaults to 'default'.
+        # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
         [string]$Environment = 'prod',
@@ -187,7 +189,7 @@
             throw "Token storage requires -Environment. Global tokens are not supported."
         }
 
-        # Prompt interactively — token is always entered via secure prompt
+        # Prompt interactively: token is always entered via secure prompt
         Write-Host "Enter token for [$Service-$Environment] (Label: $Label):" -ForegroundColor Cyan
         $secureInput = Read-Host -AsSecureString "Token"
         $tokenValue  = ConvertSecureStringToPlainText -SecureString $secureInput
@@ -196,7 +198,7 @@
             throw "Token value cannot be null or empty."
         }
 
-        # Strip Bearer prefix before storage — raw token value only
+        # Strip Bearer prefix before storage: raw token value only
         if ($tokenValue.StartsWith('Bearer ', [System.StringComparison]::OrdinalIgnoreCase)) {
             $tokenValue = $tokenValue.Substring(7)
         }
@@ -221,7 +223,7 @@
                 Write-VaultIndex -ServiceKey $key -Label $Label
                 Write-Verbose "Stored token for [$key] under label [$Label] in vault as [$vaultName]."
             } catch {
-                Write-Warning "Failed to store token in vault — $_. Token retained in session store only."
+                Write-Warning "Failed to store token in vault: $_. Token retained in session store only."
             }
         }
 
@@ -249,7 +251,7 @@
             $provider = $global:ServiceRegistry[$Service][$Environment].SSOProvider
             Write-Verbose "Resolved SSO provider [$provider] from service registry for [$Service-$Environment]."
         } else {
-            # No provider found — prompt to register one
+            # No provider found: prompt to register one
             Write-Warning "No SSO provider registered for [$Service-$Environment]."
             $register = Read-Host "Would you like to register an SSO provider? (Y/N)"
             if ($register -ne 'Y') {
@@ -277,7 +279,7 @@
         if ($provider -eq 'Aria') {
 
             # Resolve the underlying domain-account credential via the existing Basic
-            # vault/fallback/prompt chain — reuses Get-ServiceCredential exactly as
+            # vault/fallback/prompt chain; reuses Get-ServiceCredential exactly as
             # QueryParam mode does, rather than duplicating vault lookup logic here.
             $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
             $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
@@ -287,7 +289,7 @@
             $ariaPassword     = $ariaDecoded.Substring($ariaColonIndex + 1)
             $ariaCredential   = [PSCredential]::new($ariaUserName, (ConvertTo-SecureString -String $ariaPassword -AsPlainText -Force))
 
-            # Resolve domain — registry SSODomain first, then domain-joined system fallback
+            # Resolve domain: registry SSODomain first, then domain-joined system fallback
             $ariaDomain = $null
             if ($global:ServiceRegistry.ContainsKey($Service) -and
                 $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
@@ -301,14 +303,14 @@
                         Write-Verbose "Resolved Aria domain [$ariaDomain] from domain-joined system."
                     }
                 } catch {
-                    # Non-domain-joined or CIM unavailable — fall through to error below
+                    # Non-domain-joined or CIM unavailable: fall through to error below
                 }
             }
             if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
                 throw "Could not resolve Aria domain for [$Service-$Environment]. System is not domain-joined and no SSODomain is registered. Register one via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
             }
 
-            # Resolve BaseUrl from the registry — same source Get-ServiceConfig would use
+            # Resolve BaseUrl from the registry, the same source Get-ServiceConfig would use
             $ariaBaseUrl = $null
             if ($global:ServiceRegistry.ContainsKey($Service) -and
                 $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
@@ -322,7 +324,7 @@
 
         } elseif ($provider -eq 'AriaOidc') {
 
-            # Resolve BaseUrl and tenant from the registry — same source Get-ServiceConfig uses
+            # Resolve BaseUrl and tenant from the registry, the same source Get-ServiceConfig uses
             $ariaEntry = $null
             if ($global:ServiceRegistry.ContainsKey($Service) -and
                 $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
@@ -335,7 +337,7 @@
                 throw "AriaOidc requires a tenant for [$Service-$Environment]. Register one via Register-CustomService -SSOProvider AriaOidc -SSOTenant <tenant>."
             }
 
-            # Reuse any cached refresh state — no browser login while the session is alive
+            # Reuse any cached refresh state: no browser login while the session is alive
             $oidcKey = New-ServiceKey -Service $Service -Environment $Environment
             $cached  = $null
             if ($global:ServiceSSOTokens.ContainsKey($oidcKey)) {
@@ -392,7 +394,7 @@
     }
 
     # =========================================================================
-    # BASIC AUTH MODE — default
+    # BASIC AUTH MODE: default
     # =========================================================================
 
     # Prompt interactively if no credential was supplied
@@ -451,7 +453,7 @@
         $global:ServiceCredentials[$key] = $Credential
         Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label]."
 
-        # Write to vault when SecretManagement is available — mirrors Token mode.
+        # Write to vault when SecretManagement is available; mirrors Token mode.
         # Only this storage mode maps to a valid vault key (service-label-environment).
         if ($script:ServiceApiHasSecretManagement) {
             $vaultName = "$Service-$Label-$Environment"
@@ -460,7 +462,7 @@
                 Write-VaultIndex -ServiceKey $key -Label $Label
                 Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label] in vault as [$vaultName]."
             } catch {
-                Write-Warning "Failed to store Basic Auth credential in vault — $_. Credential retained in session store only."
+                Write-Warning "Failed to store Basic Auth credential in vault: $_. Credential retained in session store only."
             }
         }
     }

@@ -1,4 +1,4 @@
-﻿
+
 function Invoke-ServiceSsoRetry {
     <#
     .SYNOPSIS
@@ -78,10 +78,12 @@ function Invoke-ServiceSsoRetry {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
+        Version     : 1.0.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.0 | 06OCT26 | Initial version. The SSO 403 refresh-and-retry and its two guards,
                           extracted from Invoke-APIRequest so the decision logic is testable
                           on its own and the caller reports errors in one place.
@@ -114,14 +116,14 @@ function Invoke-ServiceSsoRetry {
         [PSCustomObject]@{ Outcome = $Outcome; Response = $Response; ErrorRecord = $ErrorRecord }
     }
 
-    # === Guard 1 — probe the current bearer before refreshing ===
+    # === Guard 1: probe the current bearer before refreshing ===
     $probeEndpoint = Get-ServiceProbeEndpoint -Service $Service -Environment $Environment
     if ($probeEndpoint -and $Headers['Authorization']) {
         if (Test-ServiceBearer -BaseUrl $BaseUrl -Endpoint $probeEndpoint -Authorization ([string]$Headers['Authorization'])) {
-            Write-Warning "SSO bearer is valid but the request was forbidden — this is an authorisation denial, not a token problem. Skipping refresh."
+            Write-Warning "SSO bearer is valid but the request was forbidden; this is an authorisation denial, not a token problem. Skipping refresh."
             return New-RetryResult -Outcome 'AuthorisationDenied'
         }
-        Write-Verbose "SSO probe [$probeEndpoint] did not succeed with the current bearer — treating the 403 as possibly stale."
+        Write-Verbose "SSO probe [$probeEndpoint] did not succeed with the current bearer; treating the 403 as possibly stale."
     }
 
     # === Refresh ===
@@ -142,9 +144,9 @@ function Invoke-ServiceSsoRetry {
         return New-RetryResult -Outcome 'RefreshFailed' -ErrorRecord $_
     }
 
-    # === Guard 2 — only retry if the bearer actually changed ===
+    # === Guard 2: only retry if the bearer actually changed ===
     if ($oldToken -and $freshToken -eq $oldToken) {
-        Write-Warning "SSO refresh returned the same bearer — retrying would repeat the 403. Skipping retry."
+        Write-Warning "SSO refresh returned the same bearer; retrying would repeat the 403. Skipping retry."
         return New-RetryResult -Outcome 'BearerUnchanged'
     }
 

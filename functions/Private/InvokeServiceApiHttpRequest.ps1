@@ -1,4 +1,4 @@
-﻿
+
 function Invoke-ServiceApiHttpRequest {
     <#
     .SYNOPSIS
@@ -94,10 +94,12 @@ function Invoke-ServiceApiHttpRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.0
+        Version     : 1.1.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.1.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.1.0 | 06OCT26 | Added a fast path when the platform reports no policy errors,
                           intermediates the server sent as chain material, wildcard and IP
                           address subject alternative name matching, bounds-checked SAN parsing,
@@ -128,7 +130,7 @@ function Invoke-ServiceApiHttpRequest {
     )
 
     # =========================================================================
-    # One-time session setup — assembly, validator type, shared client
+    # One-time session setup: assembly, validator type, shared client
     # =========================================================================
     if (-not $script:ServiceApiHttpClient) {
 
@@ -273,7 +275,7 @@ public static class ServiceApiCertValidator
     # =========================================================================
     $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($Method.ToUpperInvariant()), $Uri)
 
-    # A Content-Type entry belongs to the body, not the request headers — the same way
+    # A Content-Type entry belongs to the body, not the request headers, the same way
     # Invoke-RestMethod treats it. For a request without a body it is ignored.
     $effectiveContentType = $ContentType
     if ($Headers) {
@@ -336,7 +338,7 @@ public static class ServiceApiCertValidator
         if ($cts.IsCancellationRequested) {
             $message = "The request to [$loggableUri] timed out after $TimeoutSec seconds."
         } else {
-            $message = "The request to [$loggableUri] failed — $($detail -join ' -> ')"
+            $message = "The request to [$loggableUri] failed: $($detail -join ' -> ')"
         }
 
         $transportException = [System.Net.Http.HttpRequestException]::new($message, $_.Exception)

@@ -1,4 +1,4 @@
-﻿
+
 function Get-AriaCourierScript {
     <#
     .SYNOPSIS
@@ -12,9 +12,9 @@ function Get-AriaCourierScript {
 
         The script is held here as a template so the portal origin is rendered from the
         service registry at run time and is never committed to source control. It contains no
-        secrets: the key is only a header the listener requires, so that ordinary websites —
-        which cannot send a custom header cross-origin without a preflight the listener
-        refuses — cannot post to it.
+        secrets: the key is only a header the listener requires, so that ordinary websites
+        (which cannot send a custom header cross-origin without a preflight the listener
+        refuses) cannot post to it.
 
         Not exported. The listener serves the rendered script for a one-time install.
 
@@ -28,7 +28,7 @@ function Get-AriaCourierScript {
         The value of the X-Courier-Key header. Must match the listener.
 
     .OUTPUTS
-        System.String — the userscript source.
+        System.String - the userscript source.
 
     .EXAMPLE
         Get-AriaCourierScript -BaseUrl 'https://aria.example.com' | Set-Clipboard
@@ -51,10 +51,12 @@ function Get-AriaCourierScript {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.1
+        Version     : 1.0.2
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.0 | 01OCT26 | Initial version. Template moved into the module from the standalone
                           userscript so it ships with the AriaOidc provider.
@@ -117,7 +119,7 @@ function Get-AriaCourierScript {
     });
   }
 
-  // The SPA's token call may use fetch or XMLHttpRequest — hook both.
+  // The SPA's token call may use fetch or XMLHttpRequest, so hook both.
   const origFetch = W.fetch;
   W.fetch = function (...args) {
     const p = origFetch.apply(this, args);

@@ -1,4 +1,4 @@
-﻿function Initialise-ServiceConfig {
+function Initialise-ServiceConfig {
     <#
     .SYNOPSIS
         Ensures services.json exists on first load with an empty service registry.
@@ -14,15 +14,37 @@
         Storing services.json in AppData ensures it survives module updates and roams
         with the user's Windows profile across machines where the module is installed.
 
-        If the file already exists, this function returns without modification — it never
+        If the file already exists, this function returns without modification; it never
         overwrites an existing config.
+
+    .OUTPUTS
+        None. Creates services.json as a side effect when it is absent.
+
+    .EXAMPLE
+        & (Get-Module ServiceAPI) { Initialise-ServiceConfig }
+
+        Creates an empty services.json in $env:APPDATA\ServiceAPI\ when none exists, and returns
+        without change when one does. The function is private, so it is run from module scope.
+
+    .EXAMPLE
+        & (Get-Module ServiceAPI) { Initialise-ServiceConfig -Verbose }
+
+        Shows in the verbose stream whether the directory and file were created or already present.
+
+    .EXAMPLE
+        Test-Path (Join-Path $env:APPDATA 'ServiceAPI\services.json')
+
+        Confirms the registry file exists after the module has loaded. Expected result: True.
 
     .NOTES
         Author  : Matthew Sillett
-        Version : 1.2.0
-        Date    : 18-MAY-26
+        Version : 1.2.2
+        Date    : 06-OCT-26
 
         CHANGE LOG
+        1.2.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
+        1.2.1 | 06OCT26 | Added the help examples and .OUTPUTS required by the CMF standard.
         1.2.0 | 18MAY26 | Removed default service seed. services.json is now initialised
                           as an empty registry. All services must be registered via
                           Register-CustomService or manual JSON editing. Removed
@@ -42,7 +64,7 @@
     $configDir  = $script:ServiceApiConfigPath
     $configPath = Join-Path -Path $configDir -ChildPath 'services.json'
 
-    # File already exists — nothing to do
+    # File already exists; nothing to do
     if (Test-Path -Path $configPath -PathType Leaf) {
         Write-Verbose "ServiceAPI: services.json found at: $configPath"
         return
@@ -54,7 +76,7 @@
         Write-Verbose "ServiceAPI: Created config directory: $configDir"
     }
 
-    # Empty registry — no default services seeded. Register services via
+    # Empty registry: no default services seeded. Register services via
     # Register-CustomService -Persistent or by editing services.json directly.
     $empty = [ordered]@{}
 
@@ -63,6 +85,6 @@
             Set-Content -LiteralPath $configPath -Encoding UTF8 -Force
         Write-Verbose "ServiceAPI: Created empty services.json at: $configPath"
     } catch {
-        Write-Warning "ServiceAPI: Failed to create services.json — $_"
+        Write-Warning "ServiceAPI: Failed to create services.json: $_"
     }
 }

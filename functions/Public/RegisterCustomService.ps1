@@ -1,4 +1,4 @@
-﻿function Register-CustomService {
+function Register-CustomService {
     <#
     .SYNOPSIS
         Registers a custom API service in the service registry for use with Invoke-APIRequest.
@@ -45,7 +45,7 @@
     .PARAMETER SSODomain
         Optional. Only meaningful when -SSOProvider is 'Aria'. The domain to submit
         alongside the username during the Aria CSP token exchange. When omitted, the
-        domain of a domain-joined system is used automatically at request time — set this
+        domain of a domain-joined system is used automatically at request time; set this
         explicitly for non-domain-joined systems (e.g. a personal dev machine).
 
     .PARAMETER SSOTenant
@@ -91,10 +91,12 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.0
+        Version     : 2.6.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.6.0 | 06OCT26 | Added -ProbeEndpoint. The relative endpoint used to test whether a
                           bearer is valid for the service, stored in the in-memory registry
                           entry and persisted via Write-ServiceConfig when -Persistent is

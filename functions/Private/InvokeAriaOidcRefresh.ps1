@@ -1,4 +1,4 @@
-﻿
+
 function Invoke-AriaOidcRefresh {
     <#
     .SYNOPSIS
@@ -21,7 +21,7 @@ function Invoke-AriaOidcRefresh {
         it first next time. invalid_grant on the cached shape means the session has ended; with
         no cached shape it means the same only if every shape says so.
 
-        With -Probe every shape is tried and reported (status and OAuth error only — no tokens
+        With -Probe every shape is tried and reported (status and OAuth error only; no tokens
         are ever written to the host) for diagnostics.
 
         Not exported.
@@ -68,10 +68,12 @@ function Invoke-AriaOidcRefresh {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
+        Version     : 1.0.3
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.3 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.2 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.1 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
                           token refresh call.
@@ -165,12 +167,12 @@ function Invoke-AriaOidcRefresh {
                 continue
             }
 
-            # The shape that worked before now reports a dead session — no point trying others
+            # The shape that worked before now reports a dead session, so there is no point trying others
             if ($err.Error -eq 'invalid_grant' -and $cachedModeValid -and $name -eq $Mode) {
                 return $null
             }
             if ($err.Error -notin ($advanceOn + 'invalid_grant')) {
-                throw "Aria OIDC refresh failed (HTTP $($err.Status), error '$($err.Error)') — $_"
+                throw "Aria OIDC refresh failed (HTTP $($err.Status), error '$($err.Error)'): $_"
             }
         }
     }

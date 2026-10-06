@@ -1,4 +1,4 @@
-﻿
+
 function Invoke-AriaOidcProbe {
     <#
     .SYNOPSIS
@@ -14,7 +14,7 @@ function Invoke-AriaOidcProbe {
           3. calls four read-only endpoints with each bearer obtained and prints the HTTP status.
 
         No token, client id or secret is written to the host. Replaces the standalone listener
-        harness. Not exported — run it inside the module scope:
+        harness. Not exported; run it inside the module scope:
 
             & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria-example }
 
@@ -43,10 +43,12 @@ function Invoke-AriaOidcProbe {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
+        Version     : 1.0.3
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.3 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.2 | 06OCT26 | The endpoint status checks now use Invoke-ServiceApiHttpRequest
                           (-StatusCodeVariable) instead of Invoke-WebRequest, so they work
                           against hosts whose certificate chain trips the .NET name-constraints
