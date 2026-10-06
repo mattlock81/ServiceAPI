@@ -1,9 +1,9 @@
-﻿# ServiceAPI.psm1
+# ServiceAPI.psm1
 
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.10.0
+# Version: 2.10.1
 # Author: Matthew Sillett
 # Date: 2026-10-06
 
@@ -41,12 +41,12 @@ if (Get-Module -Name Microsoft.PowerShell.SecretManagement -ListAvailable) {
             Import-Module Microsoft.PowerShell.SecretManagement -DisableNameChecking -Force -ErrorAction Stop | Out-Null
         }
         $script:ServiceApiHasSecretManagement = $true
-        Write-Verbose "ServiceAPI: SecretManagement detected and imported — vault credential resolution enabled."
+        Write-Verbose "ServiceAPI: SecretManagement detected and imported; vault credential resolution enabled."
     } catch {
-        Write-Verbose "ServiceAPI: SecretManagement available but failed to import — vault credential resolution disabled."
+        Write-Verbose "ServiceAPI: SecretManagement available but failed to import; vault credential resolution disabled."
     }
 } else {
-    Write-Verbose "ServiceAPI: SecretManagement not available — vault credential resolution disabled."
+    Write-Verbose "ServiceAPI: SecretManagement not available; vault credential resolution disabled."
 }
 
 # ==============================
@@ -57,10 +57,10 @@ $script:FunctionsPath        = Join-Path -Path $script:ModuleRoot -ChildPath 'Fu
 $script:PrivateFunctionsPath = Join-Path -Path $script:FunctionsPath -ChildPath 'Private'
 $script:PublicFunctionsPath  = Join-Path -Path $script:FunctionsPath -ChildPath 'Public'
 
-# User data paths — outside the module directory so updates never overwrite user config
+# User data paths: outside the module directory so updates never overwrite user config
 # services.json roams with the user profile across machines where the module is installed
 $script:ServiceApiConfigPath     = Join-Path -Path $env:APPDATA -ChildPath 'ServiceAPI'
-# credential-index.json is machine-local — consistent with the SecretManagement vault store
+# credential-index.json is machine-local, consistent with the SecretManagement vault store
 $script:ServiceApiVaultIndexPath = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'ServiceAPI'
 
 if (-not (Test-Path -Path $script:FunctionsPath -PathType Container)) {
@@ -104,7 +104,7 @@ Export-ModuleMember -Function $publicFunctions
 # ==============================
 # Phase 4: Initialise Global State
 # ==============================
-# Credential and token stores — always start empty for security.
+# Credential and token stores: always start empty for security.
 # Services are populated in Phase 5 from services.json, not hardcoded here.
 $global:ServiceCredentials  = @{}
 $global:ServiceTokens       = @{}
@@ -178,4 +178,4 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
                     -Scope Global -ErrorAction SilentlyContinue
 } -SupportEvent
 
-Write-Verbose "ServiceAPI module loaded (v2.10.0)"
+Write-Verbose "ServiceAPI module loaded (v2.10.1)"

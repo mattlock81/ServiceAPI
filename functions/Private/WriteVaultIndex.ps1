@@ -1,4 +1,4 @@
-﻿function Write-VaultIndex {
+function Write-VaultIndex {
     <#
     .SYNOPSIS
         Adds a credential label to the vault index for a service-environment key.
@@ -18,12 +18,37 @@
     .PARAMETER Label
         The credential label to add (e.g., default, matt).
 
+    .OUTPUTS
+        None. Updates credential-index.json and $global:ServiceApiVaultIndex as side effects.
+
+    .EXAMPLE
+        Write-VaultIndex -ServiceKey 'jira-prod' -Label 'default'
+
+        Records the label 'default' for jira-prod in credential-index.json and in the in-memory index.
+
+    .EXAMPLE
+        Write-VaultIndex -ServiceKey 'jira-prod' -Label 'default'
+        Write-VaultIndex -ServiceKey 'jira-prod' -Label 'default'
+
+        Calling it twice with the same key and label records the label once. A label already
+        present is not duplicated.
+
+    .EXAMPLE
+        Set-Secret -Name 'jira-default-prod' -Secret $cred -Vault LocalStore
+        Write-VaultIndex -ServiceKey 'jira-prod' -Label 'default'
+
+        The order Resolve-VaultCredential uses: store the credential in the vault, then record
+        its label so a later session can find it without prompting.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.0
-        Date        : 17-MAY-26
+        Version     : 1.1.2
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.1.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
+        1.1.1 | 06OCT26 | Added the help examples and .OUTPUTS required by the CMF standard.
         1.1.0 | 17MAY26 | Updated path from module config\ directory to
                           $env:LOCALAPPDATA\ServiceAPI\ via $script:ServiceApiVaultIndexPath.
         1.0.0 | 17MAY26 | Initial version.
@@ -59,9 +84,9 @@
     try {
         $current | ConvertTo-Json -Depth 3 |
             Set-Content -LiteralPath $indexPath -Encoding UTF8 -Force
-        Write-Verbose "ServiceAPI: Vault index updated: [$ServiceKey] → [$Label]"
+        Write-Verbose "ServiceAPI: Vault index updated: [$ServiceKey] -> [$Label]"
     } catch {
-        Write-Warning "ServiceAPI: Failed to write credential-index.json — $_"
+        Write-Warning "ServiceAPI: Failed to write credential-index.json: $_"
     }
 
     # Update in-memory index

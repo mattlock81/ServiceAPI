@@ -1,4 +1,4 @@
-﻿function Read-ServiceConfig {
+function Read-ServiceConfig {
     <#
     .SYNOPSIS
         Reads the persisted service configuration from services.json.
@@ -36,10 +36,12 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.4.0
+        Version     : 1.4.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.4.0 | 06OCT26 | Added ProbeEndpoint to the parsed field whitelist so it survives the
                           read round-trip. Added the three help examples required by the CMF
                           standard.
@@ -66,7 +68,7 @@
         $raw = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
         if ([string]::IsNullOrWhiteSpace($raw)) { return @{} }
 
-        # ConvertFrom-Json returns a PSCustomObject — convert to nested hashtable for consistency
+        # ConvertFrom-Json returns a PSCustomObject, so convert it to a nested hashtable for consistency
         $parsed = $raw | ConvertFrom-Json
         $result = @{}
 
@@ -88,7 +90,7 @@
 
         return $result
     } catch {
-        Write-Warning "ServiceAPI: Failed to read services.json — $_"
+        Write-Warning "ServiceAPI: Failed to read services.json: $_"
         return @{}
     }
 }

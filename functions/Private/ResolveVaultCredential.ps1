@@ -1,4 +1,4 @@
-﻿function Resolve-VaultCredential {
+function Resolve-VaultCredential {
     <#
     .SYNOPSIS
         Resolves a credential from the SecretManagement vault for a service and environment.
@@ -9,7 +9,7 @@
 
         Token mode (AuthType = Token):
         Resolves a token credential stored as a plain "key:secret" or ":secret" string.
-        The label may be a vault label or a raw token value — distinguished by the
+        The label may be a vault label or a raw token value, distinguished by the
         Test-IsTokenValue heuristic and vault index lookup. Returns a plain string;
         the caller builds the appropriate Basic or Bearer header based on key presence.
 
@@ -19,12 +19,12 @@
 
         Both modes share the same resolution flow:
         1. Check vault index for the service-environment key.
-        2. If found — retrieve from vault and return.
-        3. If multiple labels — present selection list.
-        4. If not found — run interactive prompt flow.
+        2. If found: retrieve from vault and return.
+        3. If multiple labels: present selection list.
+        4. If not found: run interactive prompt flow.
         5. Test call against the original endpoint to validate the credential.
-        6. On success — offer vault storage and update credential index.
-        7. On 401/403 — reprompt up to 3 times. Other errors — yellow warning.
+        6. On success: offer vault storage and update credential index.
+        7. On 401/403: reprompt up to 3 times. Other errors: yellow warning.
         8. -SessionOnly bypasses vault lookup and storage entirely.
 
         Vault secret naming convention:
@@ -39,27 +39,27 @@
         The environment (prod, qa, dev).
 
     .PARAMETER AuthType
-        The authentication type — Token or Basic. Determines storage format and prompt style.
+        The authentication type: Token or Basic. Determines storage format and prompt style.
         Defaults to Token.
 
     .PARAMETER Label
         The credential label. Defaults to 'default'.
-        For Token mode — may also be a raw token value distinguished by heuristic.
-        For Basic mode — always treated as a vault label.
+        For Token mode: may also be a raw token value distinguished by heuristic.
+        For Basic mode: always treated as a vault label.
 
     .PARAMETER Endpoint
-        The endpoint from the originating Invoke-APIRequest call — used for the test call.
+        The endpoint from the originating Invoke-APIRequest call, used for the test call.
 
     .PARAMETER BaseUrl
-        The resolved BaseUrl for the service — used for the test call.
+        The resolved BaseUrl for the service, used for the test call.
 
     .PARAMETER SessionOnly
         When set, bypasses vault lookup and storage. Prompts interactively and returns
         the credential for session use only.
 
     .OUTPUTS
-        Token mode  — [string] plain "key:secret" value. Returns $null on cancellation.
-        Basic mode  — [PSCredential] object. Returns $null on cancellation.
+        Token mode  - [string] plain "key:secret" value. Returns $null on cancellation.
+        Basic mode  - [PSCredential] object. Returns $null on cancellation.
 
     .EXAMPLE
         Resolve-VaultCredential -Service opnsense -Environment prod -AuthType Token
@@ -75,10 +75,12 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.2.1
+        Version     : 1.2.2
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.2.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.2.1 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
                           credential test call, so validation works against hosts whose
                           certificate chain trips the .NET name-constraints false positive.
@@ -88,7 +90,7 @@
                           removing duplicated PSCredential normalisation code.
         1.1.0 | 17MAY26 | Added -AuthType parameter (Token/Basic). Basic Auth path stores and
                           retrieves PSCredential objects natively via SecretManagement. Token
-                          path unchanged — stores/retrieves plain "key:secret" strings. Both
+                          path unchanged: stores/retrieves plain "key:secret" strings. Both
                           paths share vault index, prompt flow, test call validation, and
                           vault write-back logic.
         1.0.0 | 17MAY26 | Initial version. Full vault resolution, interactive prompt, test call
@@ -115,15 +117,15 @@
     $isBasic    = $AuthType -eq 'Basic'
 
     # =========================================================================
-    # VAULT LOOKUP — skip when -SessionOnly is set
+    # VAULT LOOKUP: skip when -SessionOnly is set
     # =========================================================================
     if (-not $SessionOnly -and $script:ServiceApiHasSecretManagement) {
 
-        # Token mode — determine whether label is a vault label or raw token value
+        # Token mode: determine whether label is a vault label or raw token value
         if (-not $isBasic) {
             $isRawToken = Test-IsTokenValue -Value $Label -ServiceKey $serviceKey
             if ($isRawToken) {
-                Write-Verbose "Value [$Label] identified as raw token — using directly."
+                Write-Verbose "Value [$Label] identified as raw token; using directly."
                 return $Label
             }
         }
@@ -131,29 +133,29 @@
         $indexEntry = $global:ServiceApiVaultIndex[$serviceKey]
 
         if ($indexEntry -and $Label -in $indexEntry) {
-            # Label exists in index — retrieve from vault
+            # Label exists in index: retrieve from vault
             Write-Verbose "Vault label [$Label] found for [$serviceKey]. Retrieving..."
 
             try {
                 $secret = Get-Secret -Name $vaultName -ErrorAction Stop
 
                 if ($isBasic) {
-                    # Basic path expects PSCredential — normalise via shared helper
-                    Write-Verbose "Retrieved vault secret [$vaultName] — normalising to PSCredential."
+                    # Basic path expects PSCredential: normalise via shared helper
+                    Write-Verbose "Retrieved vault secret [$vaultName]; normalising to PSCredential."
                     return Convert-VaultSecretToCredential -Secret $secret
                 } else {
-                    # Token path expects plain string — convert PSCredential or SecureString if needed
+                    # Token path expects plain string: convert PSCredential or SecureString if needed
                     if ($secret -is [PSCredential]) {
                         $u   = $secret.UserName
                         $p   = $secret.GetNetworkCredential().Password
                         $raw = if ([string]::IsNullOrWhiteSpace($u)) { ":${p}" } else { "${u}:${p}" }
-                        Write-Verbose "Retrieved PSCredential [$vaultName] — converted to token string."
+                        Write-Verbose "Retrieved PSCredential [$vaultName]; converted to token string."
                         return $raw
                     } elseif ($secret -is [System.Security.SecureString]) {
                         $raw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
                             [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
                         )
-                        Write-Verbose "Retrieved SecureString [$vaultName] — converted to plain string."
+                        Write-Verbose "Retrieved SecureString [$vaultName]; converted to plain string."
                         return $raw
                     } else {
                         Write-Verbose "Retrieved token secret [$vaultName]."
@@ -161,12 +163,12 @@
                     }
                 }
             } catch {
-                Write-Warning "Failed to retrieve vault secret [$vaultName] — $_"
+                Write-Warning "Failed to retrieve vault secret [$vaultName]: $_"
                 # Fall through to interactive prompt
             }
 
         } elseif ($indexEntry -and $indexEntry.Count -gt 1) {
-            # Multiple labels exist — present selection list
+            # Multiple labels exist: present selection list
             Write-Host "`nMultiple credentials available for [$serviceKey]:" -ForegroundColor Cyan
             for ($i = 0; $i -lt $indexEntry.Count; $i++) {
                 Write-Host "  [$($i + 1)] $($indexEntry[$i])"
@@ -183,7 +185,7 @@
                     $secret = Get-Secret -Name $selectedVault -ErrorAction Stop
 
                     if ($isBasic) {
-                        Write-Verbose "Retrieved vault secret [$selectedVault] — normalising to PSCredential."
+                        Write-Verbose "Retrieved vault secret [$selectedVault]; normalising to PSCredential."
                         return Convert-VaultSecretToCredential -Secret $secret
                     } else {
                         if ($secret -is [PSCredential]) {
@@ -201,7 +203,7 @@
                         }
                     }
                 } catch {
-                    Write-Warning "Failed to retrieve vault secret [$selectedVault] — $_"
+                    Write-Warning "Failed to retrieve vault secret [$selectedVault]: $_"
                     # Fall through to interactive prompt
                 }
             }
@@ -221,7 +223,7 @@
         Write-Host "`nEnter credentials for [$Service-$Environment]${attemptSuffix}:" -ForegroundColor Cyan
 
         if ($isBasic) {
-            # Basic Auth — prompt for username and password as PSCredential
+            # Basic Auth: prompt for username and password as PSCredential
             $cred = Get-Credential -Message "Enter credentials for [$Service-$Environment]"
 
             if ($null -eq $cred) {
@@ -231,7 +233,7 @@
 
             $resolvedForTest = $cred
         } else {
-            # Token — prompt for key (nullable) and secret
+            # Token: prompt for key (nullable) and secret
             $keyInput    = Read-Host "Key (leave blank if not required)"
             $secretInput = Read-Host -AsSecureString "Password"
             $secretPlain = ConvertSecureStringToPlainText -SecureString $secretInput
@@ -251,7 +253,7 @@
         }
 
         # =====================================================================
-        # TEST CALL — validate the credential against the service endpoint
+        # TEST CALL: validate the credential against the service endpoint
         # =====================================================================
         $testStatus = $null
 
@@ -292,7 +294,7 @@
                 $testStatus = $_.Exception.Response.StatusCode.value__
             }
         } else {
-            # No endpoint available for test — assume valid and proceed
+            # No endpoint available for test: assume valid and proceed
             $testStatus = 200
         }
 
@@ -327,7 +329,7 @@
     if ($null -eq $resolved) { return $null }
 
     # =========================================================================
-    # VAULT STORAGE OFFER — skip when -SessionOnly is set
+    # VAULT STORAGE OFFER: skip when -SessionOnly is set
     # =========================================================================
     if (-not $SessionOnly -and $script:ServiceApiHasSecretManagement) {
         $store = Read-Host "Store credential in vault? (Y/n)"
@@ -349,7 +351,7 @@
                 Write-VaultIndex -ServiceKey $serviceKey -Label $labelInput
                 Write-Host "Credential stored as [$storeName]." -ForegroundColor Cyan
             } catch {
-                Write-Warning "Failed to store credential in vault — $_"
+                Write-Warning "Failed to store credential in vault: $_"
             }
         }
     }

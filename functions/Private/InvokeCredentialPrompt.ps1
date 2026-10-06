@@ -13,6 +13,10 @@ function Invoke-CredentialPrompt {
     .PARAMETER Environment
         Optional environment name to include in the prompt message.
 
+    .OUTPUTS
+        System.Management.Automation.PSCredential - the credential entered. Get-Credential returns
+        $null when the prompt is cancelled.
+
     .EXAMPLE
         $cred = Invoke-CredentialPrompt
         # Prompts: "Enter credentials"
@@ -21,12 +25,23 @@ function Invoke-CredentialPrompt {
         $cred = Invoke-CredentialPrompt -Service jira -Environment prod
         # Prompts: "Enter credentials for jira (prod)"
 
+    .EXAMPLE
+        $cred = Invoke-CredentialPrompt -Environment qa
+        # Prompts: "Enter credentials for qa environment"
+
+    .EXAMPLE
+        $cred = Invoke-CredentialPrompt -Service confluence
+        if (-not $cred) { Write-Warning 'No credential was entered.'; return }
+
+        Handles a cancelled prompt. A service name on its own gives "Enter credentials for confluence".
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 27-JAN-26
+        Version     : 1.0.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.1 | 06OCT26 | Added the help examples and .OUTPUTS required by the CMF standard.
         1.0.0 | 27JAN26 | Initial version to consolidate credential prompting logic.
     #>
 

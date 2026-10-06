@@ -1,4 +1,4 @@
-﻿
+
 function ConvertFrom-JwtPayload {
     <#
     .SYNOPSIS
@@ -6,7 +6,7 @@ function ConvertFrom-JwtPayload {
 
     .DESCRIPTION
         Splits the token, base64url-decodes the second segment and returns it as an object.
-        No signature, issuer or expiry validation is performed — callers use the claims for
+        No signature, issuer or expiry validation is performed; callers use the claims for
         non-security decisions only (for example reading the 'aud' claim to learn the OIDC
         client id). Not exported.
 
@@ -41,10 +41,12 @@ function ConvertFrom-JwtPayload {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.1
+        Version     : 1.0.2
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.0 | 01OCT26 | Initial version, for the AriaOidc provider.
     #>

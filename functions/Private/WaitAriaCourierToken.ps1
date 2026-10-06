@@ -1,4 +1,4 @@
-﻿
+
 function Wait-AriaCourierToken {
     <#
     .SYNOPSIS
@@ -41,7 +41,7 @@ function Wait-AriaCourierToken {
         Optional script block run after the listener starts.
 
     .OUTPUTS
-        PSCustomObject — the accepted payload (origin, access_token, refresh_token,
+        PSCustomObject - the accepted payload (origin, access_token, refresh_token,
         expires_in, scope).
 
     .EXAMPLE
@@ -67,10 +67,12 @@ function Wait-AriaCourierToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.1
+        Version     : 1.0.2
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
         1.0.0 | 01OCT26 | Initial version. Listener logic extracted from Invoke-AriaOidcLogin and
                           extended to serve the courier script for one-time install.
@@ -101,7 +103,7 @@ function Wait-AriaCourierToken {
     try {
         $listener.Start()
     } catch {
-        throw "AriaOidc could not listen on 127.0.0.1:$Port (is another listener already running?) — $($_.Exception.Message)"
+        throw "AriaOidc could not listen on 127.0.0.1:$Port (is another listener already running?): $($_.Exception.Message)"
     }
 
     $scriptBytes = [Text.Encoding]::UTF8.GetBytes($ScriptText)

@@ -1,4 +1,4 @@
-﻿function Clear-ServiceCredential {
+function Clear-ServiceCredential {
     <#
     .SYNOPSIS
         Clears stored Basic Auth, Token, or SSO credentials for an API service/environment pair.
@@ -13,8 +13,8 @@
         SSO credentials are stored in $global:ServiceSSOTokens.
 
         For Basic and Token types, targeted clearing (i.e. -Service and/or -Environment
-        supplied, not -Global) also removes the corresponding vault entry — labelled per
-        -Label, defaulting to 'default' — via Remove-Secret, and updates
+        supplied, not -Global) also removes the corresponding vault entry (labelled per
+        -Label, defaulting to 'default') via Remove-Secret, and updates
         credential-index.json via Remove-VaultIndex. Vault removal is skipped
         automatically if no matching label exists in the vault index for that
         service-environment key. SSO credentials are never vault-stored, so no vault
@@ -56,12 +56,12 @@
 
     .EXAMPLE
         Clear-ServiceCredential -Service googleapi -Environment prod -AuthType SSO
-        Clears the SSO token for googleapi in prod. No vault interaction — SSO is never
+        Clears the SSO token for googleapi in prod. No vault interaction: SSO is never
         vault-stored.
 
     .EXAMPLE
         Clear-ServiceCredential -Global -AuthType Basic
-        Clears the global Basic Auth fallback credential. In-memory only — no vault entry
+        Clears the global Basic Auth fallback credential. In-memory only: no vault entry
         exists for global credentials.
 
     .EXAMPLE
@@ -70,22 +70,24 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.0
-        Date        : 17-AUG-26
+        Version     : 2.6.1
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.6.0 | 17AUG26 | Added -Label parameter and automatic vault removal for Basic and
                           Token credential types during targeted (-Service/-Environment)
                           clearing, via Remove-Secret and the new Remove-VaultIndex private
                           function. Previously Clear-ServiceCredential only removed
-                          in-memory state, leaving vault-persisted credentials — including
+                          in-memory state, leaving vault-persisted credentials (including
                           those stored automatically by Set-ServiceCredential's Token path,
-                          or offered interactively by Resolve-VaultCredential for Basic —
+                          or offered interactively by Resolve-VaultCredential for Basic)
                           untouched. This meant a subsequent Get-ServiceCredential call
                           could silently re-resolve a "cleared" credential straight from
-                          the vault. -Global clearing is unaffected — no vault key exists
+                          the vault. -Global clearing is unaffected; no vault key exists
                           for global/service-global/environment-wide storage.
-        2.5.0 | 17MAY26 | No functional changes — -AuthType ValidateSet already consistent with
+        2.5.0 | 17MAY26 | No functional changes: -AuthType ValidateSet already consistent with
                           new unified auth model. Version bumped for release consistency.
         2.3.0 | 16MAY26 | Added [ArgumentCompleter] on -Service for tab completion from live registry.
         2.2.0 | 16MAY26 | Added SSO credential clearing support. Extended -AuthType ValidateSet to
@@ -117,7 +119,7 @@
         [ValidateSet('Basic', 'Token', 'SSO', 'All')]
         [string]$AuthType = 'All',
 
-        # Vault label to remove alongside the in-memory credential — applies to Basic and
+        # Vault label to remove alongside the in-memory credential; applies to Basic and
         # Token types during targeted clearing. Defaults to 'default'.
         [string]$Label = 'default',
 
@@ -127,7 +129,7 @@
 
     $targets = [System.Collections.Generic.List[hashtable]]::new()
 
-    # === Global credential clearing — Basic Auth only ===
+    # === Global credential clearing: Basic Auth only ===
     if ($Global) {
         if ($AuthType -in @('All', 'Basic')) {
             $key = New-ServiceKey -Global
@@ -193,7 +195,7 @@
 
         Write-Verbose "Removed $type credential for [$key]."
 
-        # Remove from vault when SecretManagement is available — Basic/Token only.
+        # Remove from vault when SecretManagement is available (Basic/Token only).
         # SSO is never vault-stored (see Set-ServiceCredential). Global-scope targets
         # have no Service/Environment on the target object and are skipped implicitly,
         # since they have no valid vault key.
@@ -210,10 +212,10 @@
                     Remove-VaultIndex -ServiceKey $key -Label $Label
                     Write-Verbose "Removed $type credential for [$key] under label [$Label] from vault as [$vaultName]."
                 } catch {
-                    Write-Warning "Failed to remove vault secret [$vaultName] — $_."
+                    Write-Warning "Failed to remove vault secret [$vaultName]: $_."
                 }
             } else {
-                Write-Verbose "No vault entry found for [$key] under label [$Label] — nothing to remove from vault."
+                Write-Verbose "No vault entry found for [$key] under label [$Label]; nothing to remove from vault."
             }
         }
     }

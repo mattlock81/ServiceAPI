@@ -1,4 +1,4 @@
-﻿function Get-ServiceConfig {
+function Get-ServiceConfig {
     <#
     .SYNOPSIS
         Resolves BaseUrl and headers for a service/environment.
@@ -10,7 +10,7 @@
 
         Headers are built in layers:
         1. New-StandardHeaders provides the base set.
-        2. Registered DefaultHeaders are overlaid — they take precedence over standard headers.
+        2. Registered DefaultHeaders are overlaid; they take precedence over standard headers.
         3. Credential-derived headers are resolved via Get-ServiceCredential using the
            supplied -AuthType and -Label, only when Authorization is not already provided
            by DefaultHeaders.
@@ -60,12 +60,14 @@
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.5.1
-        Date        : 17-MAY-26
+        Version     : 2.5.2
+        Date        : 06-OCT-26
 
         CHANGE LOG
+        2.5.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.5.1 | 17MAY26 | Added 'None' to -AuthType ValidateSet. Credential resolution
-                          skipped entirely when AuthType is 'None' — suitable for
+                          skipped entirely when AuthType is 'None', suitable for
                           unauthenticated local services and listeners.
         2.5.0 | 17MAY26 | Replaced -UseToken and -UseSSO with -AuthType [ValidateSet] and
                           -Label parameters. Auth mode selection is now explicit and tab-completed.
@@ -101,13 +103,13 @@
         [ValidateSet('Basic', 'Token', 'SSO', 'None')]
         [string]$AuthType = 'Basic',
 
-        # Vault label — applies to Basic and Token auth types. Defaults to 'default'.
+        # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
         [string]$Environment = 'prod',
         [string]$BaseUrl,
 
-        # Bypasses vault lookup and storage — passed through to Get-ServiceCredential. Ignored for SSO.
+        # Bypasses vault lookup and storage; passed through to Get-ServiceCredential. Ignored for SSO.
         [switch]$SessionOnly,
 
         # Passed through to Get-ServiceCredential for vault test call validation.
@@ -182,7 +184,7 @@
                 }
             }
         } else {
-            Write-Verbose "Skipping credential resolution — AuthType is '$AuthType'."
+            Write-Verbose "Skipping credential resolution: AuthType is '$AuthType'."
         }
 
         return @{

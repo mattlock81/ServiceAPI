@@ -1,4 +1,4 @@
-﻿
+
 function Invoke-AriaOidcLogin {
     <#
     .SYNOPSIS
@@ -8,15 +8,15 @@ function Invoke-AriaOidcLogin {
     .DESCRIPTION
         Orchestrates the AriaOidc provider:
 
-        1. Silent refresh — when -RefreshToken is held, Invoke-AriaOidcRefresh exchanges it at
+        1. Silent refresh: when -RefreshToken is held, Invoke-AriaOidcRefresh exchanges it at
            /oidc/oauth2/token (the refresh token is opaque, non-rotating and valid for the
            browser session, about 8 hours). Only a dead session (invalid_grant) falls through
            to a browser login.
-        2. Browser login — Wait-AriaCourierToken starts a loopback listener on 127.0.0.1 and
+        2. Browser login: Wait-AriaCourierToken starts a loopback listener on 127.0.0.1 and
            the portal is opened in the default browser. The courier userscript (rendered by
            Get-AriaCourierScript and served by the listener for a one-time install) forwards the
            SPA's own token response to the listener. Nothing is required from the platform.
-        3. Bearer selection — the token Invoke-APIRequest will send is chosen by test rather
+        3. Bearer selection: the token Invoke-APIRequest will send is chosen by test rather
            than assumption: the OIDC access token if the IaaS API accepts it, otherwise the
            token iaas/api/login issues for the OIDC refresh token (the pre-v9 step 2),
            otherwise the OIDC access token with a warning.
@@ -74,10 +74,12 @@ function Invoke-AriaOidcLogin {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.0
+        Version     : 1.3.1
         Date        : 06-OCT-26
 
         CHANGE LOG
+        1.3.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+                          sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.3.0 | 06OCT26 | The bearer test now uses the shared Test-ServiceBearer, with the probe
                           endpoint supplied through -ProbeEndpoint, so the login and the SSO 403
                           retry agree on what proves a bearer is valid. Added two help examples.
@@ -159,7 +161,7 @@ function Invoke-AriaOidcLogin {
     $tokens = $null
 
     # -------------------------------------------------------------------------
-    # Path 1 — silent refresh with a held refresh token
+    # Path 1: silent refresh with a held refresh token
     # -------------------------------------------------------------------------
     if ($RefreshToken) {
         $refreshed = Invoke-AriaOidcRefresh -BaseUrl $BaseUrl -RefreshToken $RefreshToken `
@@ -169,12 +171,12 @@ function Invoke-AriaOidcLogin {
             $tokens = ConvertTo-AriaTokenSet -Response $refreshed.Response `
                 -FallbackRefreshToken $RefreshToken -ClientId $ClientId -RefreshMode $refreshed.Mode
         } else {
-            Write-Verbose "Aria OIDC refresh token rejected (invalid_grant). Session has ended — starting browser login."
+            Write-Verbose "Aria OIDC refresh token rejected (invalid_grant). Session has ended; starting browser login."
         }
     }
 
     # -------------------------------------------------------------------------
-    # Path 2 — browser login; the courier forwards the SPA's token response
+    # Path 2: browser login; the courier forwards the SPA's token response
     # -------------------------------------------------------------------------
     if (-not $tokens) {
         $scriptText = Get-AriaCourierScript -BaseUrl $BaseUrl -Port $ListenerPort -Key $courierKey
@@ -193,7 +195,7 @@ function Invoke-AriaOidcLogin {
     }
 
     # -------------------------------------------------------------------------
-    # Bearer selection — verified against the IaaS API, not assumed
+    # Bearer selection: verified against the IaaS API, not assumed
     # -------------------------------------------------------------------------
     $bearer     = $tokens.Access
     $bearerMode = 'oidc'
@@ -213,7 +215,7 @@ function Invoke-AriaOidcLogin {
                 }
             }
         } catch {
-            Write-Verbose "iaas/api/login did not accept the OIDC refresh token — $($_.Exception.Message)"
+            Write-Verbose "iaas/api/login did not accept the OIDC refresh token: $($_.Exception.Message)"
         }
 
         if ($bearerMode -eq 'oidc') {
