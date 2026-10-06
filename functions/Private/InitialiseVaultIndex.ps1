@@ -39,10 +39,13 @@ function Initialise-VaultIndex {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.2
-        Date        : 06-OCT-26
+        Version     : 1.1.3
+        Date        : 07-OCT-26
 
         CHANGE LOG
+        1.1.3 | 07OCT26 | File renamed from InitializeVaultIndex.ps1 to InitialiseVaultIndex.ps1 so
+                          the file name matches the function name and the Australian/British
+                          spelling convention. No code change.
         1.1.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.1.1 | 06OCT26 | Added the help examples and .OUTPUTS required by the CMF standard.

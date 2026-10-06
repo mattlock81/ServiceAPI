@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.10.3'
+ModuleVersion = '2.10.4'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -30,7 +30,7 @@ CompanyName = 'Australian Signals Directorate'
 Copyright = '(c) 2026 Matthew Sillett. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'REST API framework for PowerShell supporting Basic Auth, static Bearer token, OAuth SSO, and SecretManagement vault-integrated credential resolution. Predefined support for Atlassian Data Center, OPNsense, and Google Workspace APIs. User configuration stored in AppData and LocalAppData; module updates never overwrite user data.'
+Description = 'REST API framework for PowerShell supporting Basic Auth, static Bearer token, OAuth SSO, and SecretManagement vault-integrated credential resolution. Predefined support for Atlassian Data Centre, OPNsense, and Google Workspace APIs. User configuration stored in AppData and LocalAppData; module updates never overwrite user data.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'
@@ -97,7 +97,7 @@ PrivateData = @{
         # Tags applied to this module. These help with module discovery in online galleries.
         Tags = 'API','REST','Atlassian','Jira','Confluence','OPNsense','Google','OAuth','SSO','SecretManagement','Vault','DevOps','Automation'
 
-        # A URL to the license for this module.
+        # A URL to the licence for this module.
         # LicenseUri = ''
 
         # A URL to the main website for this project.
@@ -107,7 +107,11 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.10.3 | 07OCT26 | Write-ServiceApiHandledError now passes its -Message to Debug-Error -Message
+        ReleaseNotes = '2.10.4 | 07OCT26 | Australian/British spelling consistency. The private files InitializeServiceConfig.ps1
+                  and InitializeVaultIndex.ps1 are renamed InitialiseServiceConfig.ps1 and InitialiseVaultIndex.ps1 to
+                  match their function names (Initialise-ServiceConfig, Initialise-VaultIndex), and the manifest text now
+                  reads Data Centre and licence. No code change.
+2.10.3 | 07OCT26 | Write-ServiceApiHandledError now passes its -Message to Debug-Error -Message
                   when the installed SYSCommon provides it (2.8.0 and later); older SYSCommon keeps
                   the previous behaviour. No other changes.
 2.10.2 | 07OCT26 | Fixed Write-ServiceApiHandledError dropping its -Message when SYSCommon

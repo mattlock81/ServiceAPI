@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.10.3  
+**Version**: 2.10.4  
 **Author**: Matthew Sillett  
 **Organisation**:
 
@@ -371,8 +371,8 @@ ServiceAPI/
     │   ├── ConvertVaultSecretToCredential.ps1
     │   ├── GetAriaCourierScript.ps1
     │   ├── GetServiceProbeEndpoint.ps1
-    │   ├── InitializeServiceConfig.ps1
-    │   ├── InitializeVaultIndex.ps1
+    │   ├── InitialiseServiceConfig.ps1
+    │   ├── InitialiseVaultIndex.ps1
     │   ├── InvokeAriaOidcLogin.ps1
     │   ├── InvokeAriaOidcProbe.ps1
     │   ├── InvokeAriaOidcRefresh.ps1
@@ -414,6 +414,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.10.4 | 07Oct26 | Australian/British spelling consistency, no code change. The private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` are renamed `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` to match their function names (`Initialise-ServiceConfig`, `Initialise-VaultIndex`), and the manifest text now reads Data Centre and licence. |
 | 2.10.3 | 07Oct26 | Write-ServiceApiHandledError (1.1.0) passes the context to Debug-Error -Message when the installed SYSCommon provides it (2.8.0 and later), so the context and the error share one log entry. Older SYSCommon keeps the previous behaviour of logging the context separately through Write-Log. |
 | 2.10.2 | 07Oct26 | Fixed Write-ServiceApiHandledError (1.0.1) dropping its -Message when SYSCommon Debug-Error is available. Debug-Error has no parameter for caller context, so the message is now logged as its own entry through Write-Log, at the same severity and quiet for an HTTP 404, before the error is reported. The local fallback is unchanged. |
 | 2.10.1 | 06Oct26 | No functional changes. Every em dash in the PowerShell source is replaced with ASCII punctuation and the affected sentences are reworded, so the source is plain ASCII and loads on Windows PowerShell 5.1 without a byte-order mark. Help brought to the CMF three-example minimum on every function, with a complete help block for Write-ServiceApiHandledError. |

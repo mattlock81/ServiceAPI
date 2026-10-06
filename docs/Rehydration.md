@@ -1,7 +1,7 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.10.3 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
+**Version at time of writing**: 2.10.4 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
 **Last updated**: 07-OCT-26
 **Author**: Matthew Sillett
 
@@ -20,7 +20,8 @@
 - v2.10.1 changes no behaviour. It replaces every em dash in the PowerShell source with ASCII punctuation (D16), brings the help of every function to the CMF three-example minimum (the help audit reports 32 of 32 compliant), and adds a complete help block to `Write-ServiceApiHandledError`.
 - v2.10.2 fixes one defect: `Write-ServiceApiHandledError` dropped its `-Message` when SYSCommon `Debug-Error` was available. The message is now logged as its own entry through `Write-Log` first (D17).
 - v2.10.3 passes the context to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later) and keeps the `Write-Log` path for older SYSCommon (D17).
-- Verification so far, on the Windows 10 work machine: every file parses and the module imports as 2.10.0 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
+- v2.10.4 changes no code. It renames the two private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` to `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` so they match their functions, and corrects the manifest text to Data Centre and licence (D18).
+- Verification so far, on the AWS WorkSpace only (Windows Server 2025, build 26100): every file parses and the module imports as 2.10.4 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
 - Auth types: `Basic`, `Token`, `SSO`, `None`, `QueryParam`.
 - SSO providers: `GCloud`, `AzureCLI`, `Aria` (username/password, pre-v9 only), `AriaOidc`.
 - Loader: six-phase dot-source loader in `ServiceAPI.psm1` (dependency detection, paths,
@@ -52,6 +53,7 @@
 | D15 | The probe endpoint comes from `Get-ServiceProbeEndpoint` (registry `ProbeEndpoint`, else the `AriaOidc` default, else none) and the bearer test is `Test-ServiceBearer` | The `AriaOidc` login and the 403 guard must agree on what proves a bearer is valid. |
 | D16 | PowerShell source files are plain ASCII, with no em dashes or other typographic characters | Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected. v2.10.0 added a BOM as a stopgap. v2.10.1 replaced all 196 em dashes (and one copyright sign and one arrow), so no BOM is needed. |
 | D17 | Handled-error context goes to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later); otherwise it is logged separately through SYSCommon `Write-Log` before `Debug-Error` reports the error | `Debug-Error` originally had no parameter for caller context (it took `-ErrorRecord`, `-Severity` and `-Bug`) and logs an HTTP response body in place of the exception message, so wrapping the context into the exception would not reliably surface it. SYSCommon 2.8.0 added `-Message`, which puts the context and the error in one log entry. The module detects the parameter with `Get-Command`, so it works with either SYSCommon generation. On older SYSCommon, `Write-Log` does not throw, so `Debug-Error` still controls the rethrow for Critical; the separate context line is skipped for an HTTP 404 under the same noise rule as `Debug-Error`, and falls back to the standard streams when `Write-Log` is absent. |
+| D18 | Australian/British English throughout, including file names, function names, help, messages and documentation | The convention was first applied in 2.4.3, but two private file names kept the American spelling (`InitializeServiceConfig.ps1`, `InitializeVaultIndex.ps1`) while their functions were already `Initialise-...`; 2.10.4 renamed the files to match. Names that belong to something external are kept as they are: the HTTP `Authorization` header, .NET types such as `JavaScriptSerializer`, and manifest keys such as `LicenseUri` and `RequireLicenseAcceptance`. Product names follow the house spelling (Data Centre). Historical changelog entries keep the old names they record. |
 
 ## 3. Environment Facts (Aria v9, classic tenant)
 
@@ -62,8 +64,10 @@
   refresh token is opaque, non-rotating and bound to the session (per the findings notes).
 - The SPA authenticates its own refresh with its session cookie, not with client credentials.
 - Both Confluence endpoints are TLS 1.3 only. Windows 10 SChannel cannot negotiate TLS 1.3,
-  so native PowerShell on the Windows 10 work machine cannot reach them. The Aria host is
-  TLS 1.2 and reachable from native PowerShell.
+  so native PowerShell on a Windows 10 host cannot reach them. The AWS WorkSpace used for this
+  work runs Windows Server 2025, whose SChannel supports TLS 1.3, so that limit is not expected
+  to apply there (not yet tested against the Confluence endpoints from this repository). The
+  Aria host is TLS 1.2 and reachable from native PowerShell.
 - The internal Aria CA issues leaf certificates that carry IP-address names, beneath a CA whose
   permitted subtrees are DNS-only. OpenSSL and CryptoAPI accept that chain. The .NET chain
   engine rejects it (the name-constraints false positive).
@@ -93,7 +97,8 @@
 - Verify the harvested access token's signature against the issuer's published signing keys
   (JWKS). Parked until testing is complete.
 - Opt-in per-service transport using Git for Windows' OpenSSL/curl for TLS 1.3-only endpoints
-  such as Confluence.
+  such as Confluence. Only needed on hosts whose SChannel lacks TLS 1.3 (Windows 10); not
+  expected to be needed on Windows Server 2025 or Windows 11.
 - Cross-platform (RHEL) support using OS branching at import time — previously planned,
   deferred pending the Phase 1 source.
 - Multiple vaults with a vault selector, and KeePass support. The design record is in section 7.
@@ -158,6 +163,7 @@ Implementation order: loader OS check and path helper, vault functions, `-Vault`
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.0 | 07-OCT-26 | Added D18 (Australian/British English including file names). Corrected the machine description: the AWS WorkSpace is Windows Server 2025, not Windows 10, so the TLS 1.3 limitation applies to Windows 10 hosts only. Brought current to module v2.10.4. |
 | 1.6.0 | 07-OCT-26 | D17 revised: handled-error context uses Debug-Error -Message when SYSCommon 2.8.0 or later provides it. SYSCommon encoding gap recorded under planned scope. Brought current to module v2.10.3. |
 | 1.5.0 | 07-OCT-26 | Added D17 (handled-error context logged through Write-Log). Brought current to module v2.10.2. |
 | 1.4.0 | 06-OCT-26 | Help brought to the CMF standard on every function (audit: 32 of 32 compliant). Em dashes removed from all PowerShell source and D16 revised to a plain-ASCII rule. Brought current to module v2.10.1. |
