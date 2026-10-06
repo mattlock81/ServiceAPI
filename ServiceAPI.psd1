@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.10.1'
+ModuleVersion = '2.10.2'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -107,7 +107,10 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.10.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
+        ReleaseNotes = '2.10.2 | 07OCT26 | Fixed Write-ServiceApiHandledError dropping its -Message when SYSCommon
+                  Debug-Error is available. The context is now logged as its own entry through Write-Log
+                  before the error is reported. No other changes.
+2.10.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                   sentences, so every PowerShell file is plain ASCII and loads on Windows PowerShell 5.1
                   without a byte-order mark. Added the help examples required by the CMF standard to the
                   remaining private functions and a complete help block to Write-ServiceApiHandledError.

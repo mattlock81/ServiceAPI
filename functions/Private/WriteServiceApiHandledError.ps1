@@ -8,8 +8,12 @@ function Write-ServiceApiHandledError {
 
         When SYSCommon's Debug-Error was found at module import, it is authoritative: the error
         record and severity are passed to it and it logs the error, and for Critical severity
-        throws (its documented behaviour). Debug-Error receives only the error record and the
-        severity, so the optional -Message is not passed to it.
+        throws (its documented behaviour). Debug-Error has no parameter for caller context, so
+        when -Message is supplied it is first logged as its own entry through SYSCommon's
+        Write-Log, at the same severity, and Debug-Error then reports the error itself. That
+        context line follows Debug-Error's own noise rule and is skipped for an HTTP 404 unless
+        $DebugPreference is active. If Write-Log is unavailable, the context is written to the
+        warning, verbose or debug stream by severity instead.
 
         When Debug-Error is not available, a lightweight local fallback reports the error by
         severity instead:
@@ -34,8 +38,10 @@ function Write-ServiceApiHandledError {
         stream shown in the description.
 
     .PARAMETER Message
-        Optional context placed in front of the exception message, for example 'SSO token refresh
-        failed after 403.'. Used only by the local fallback; Debug-Error is not given it.
+        Optional context describing what the caller was doing, for example 'SSO token refresh
+        failed after 403.'. With Debug-Error it is logged as a separate entry through Write-Log
+        before the error is reported. In the local fallback it is placed in front of the
+        exception message.
 
     .OUTPUTS
         None.
@@ -55,7 +61,8 @@ function Write-ServiceApiHandledError {
             Write-ServiceApiHandledError -ErrorRecord $_ -Severity 'Critical' -Message 'SSO token refresh failed after 403.'
         }
 
-        Adds context to the reported error. The context appears in the local fallback output only.
+        Adds context to the reported error. With Debug-Error loaded the context is logged as its
+        own entry ahead of the error. In the local fallback it prefixes the exception message.
 
     .EXAMPLE
         catch {
@@ -67,10 +74,15 @@ function Write-ServiceApiHandledError {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 06-OCT-26
+        Version     : 1.0.1
+        Date        : 07-OCT-26
 
         CHANGE LOG
+        1.0.1 | 07OCT26 | Fixed -Message being silently dropped when Debug-Error is available.
+                          The context is now logged as its own entry through Write-Log, at the
+                          same severity and skipped for an HTTP 404 under Debug-Error's noise
+                          rule, with a stream fallback when Write-Log is absent. The local
+                          fallback is unchanged.
         1.0.0 | 06OCT26 | Added complete comment-based help (description, parameter descriptions,
                           examples and notes). The function predates per-function versioning,
                           so the version is recorded from this entry.
@@ -87,8 +99,40 @@ function Write-ServiceApiHandledError {
         [string]$Message
     )
 
-    # Debug-Error is authoritative when available; local fallback stays intentionally lightweight.
+    # Debug-Error is authoritative when available. It has no parameter for caller context, so the
+    # message is logged first as its own entry through SYSCommon's Write-Log (the logger Debug-Error
+    # itself uses), then Debug-Error reports the error. For Critical severity Debug-Error rethrows
+    # after logging; Write-Log does not throw, so the order keeps the context ahead of the error.
     if ($script:ServiceApiHasDebugError) {
+
+        if (-not [string]::IsNullOrWhiteSpace($Message)) {
+
+            # Debug-Error treats an HTTP 404 as debug-only noise unless $DebugPreference is active.
+            # The context line follows the same rule so an expected 404 stays quiet.
+            $quiet404 = $false
+            if ($ErrorRecord.Exception.PSObject.Properties['Response'] -and $ErrorRecord.Exception.Response) {
+                $quiet404 = ([int]$ErrorRecord.Exception.Response.StatusCode -eq 404) -and ($DebugPreference -eq 'SilentlyContinue')
+            }
+
+            if (-not $quiet404) {
+                $contextText = $Message.TrimEnd()
+                $logCommand  = Get-Command -Name Write-Log -ErrorAction SilentlyContinue
+
+                if ($logCommand -and $logCommand.Parameters.ContainsKey('Message') -and $logCommand.Parameters.ContainsKey('Severity')) {
+                    Write-Log -Message $contextText -Severity $Severity
+                } else {
+                    # No usable Write-Log: use the standard streams. Never a second error, because
+                    # Debug-Error reports the error itself.
+                    switch ($Severity) {
+                        'Critical'      { Write-Warning $contextText }
+                        'Warning'       { Write-Warning $contextText }
+                        'Informational' { Write-Verbose $contextText }
+                        'Debug'         { Write-Debug $contextText }
+                    }
+                }
+            }
+        }
+
         Debug-Error -ErrorRecord $ErrorRecord -Severity $Severity
         return
     }
