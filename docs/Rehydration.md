@@ -104,7 +104,7 @@
 - Multiple vaults with a vault selector, and KeePass support. The design record is in section 7.
 - Remove the Windows PowerShell 5.1 limit on JSON responses of about 2 MB (`ConvertFrom-Json`),
   for example with a `JavaScriptSerializer` fallback in `Invoke-ServiceApiHttpRequest`.
-- SYSCommon is installed under PowerShell 7 only. Thirteen of its PowerShell files contain non-ASCII characters and no BOM, so it does not load on Windows PowerShell 5.1 and ServiceAPI falls back to its local handler there. To be fixed in the SYSCommon repository.
+- SYSCommon is installed under PowerShell 7 only (the installed copy is 2.7.0). Its source was not plain ASCII, so it could not load on Windows PowerShell 5.1 and ServiceAPI fell back to its local handler there. SYSCommon 2.8.1 fixes this and is committed in the SYSCommon repository, verified by import and an export, import and compare round trip on both editions. Until it is pushed and installed under the Windows PowerShell module path, the fallback still applies on 5.1.
 
 ## 6. Conventions and Gotchas
 
