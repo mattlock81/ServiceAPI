@@ -51,10 +51,13 @@ function Convert-VaultSecretToCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 1.0.2
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.1.0 | 08OCT26 | Linux support: converts a SecureString through ConvertSecureStringToPlainText,
+                          which reads the BSTR as UTF-16 and frees it. PtrToStringAuto decodes as UTF-8 on Linux
+                          and never freed the BSTR.
         1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the help examples required by the CMF standard.
@@ -75,9 +78,7 @@ function Convert-VaultSecretToCredential {
     }
 
     $plain = if ($Secret -is [System.Security.SecureString]) {
-        [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
-        )
+        ConvertSecureStringToPlainText -SecureString $Secret
     } else {
         [string]$Secret
     }

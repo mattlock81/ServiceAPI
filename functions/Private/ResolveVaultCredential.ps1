@@ -75,10 +75,13 @@ function Resolve-VaultCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.2.2
-        Date        : 06-OCT-26
+        Version     : 1.3.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.3.0 | 08OCT26 | Linux support: converts a SecureString through ConvertSecureStringToPlainText,
+                          which reads the BSTR as UTF-16 and frees it. PtrToStringAuto decodes as UTF-8 on Linux
+                          and never freed the BSTR.
         1.2.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.2.1 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
@@ -152,9 +155,7 @@ function Resolve-VaultCredential {
                         Write-Verbose "Retrieved PSCredential [$vaultName]; converted to token string."
                         return $raw
                     } elseif ($secret -is [System.Security.SecureString]) {
-                        $raw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-                        )
+                        $raw = ConvertSecureStringToPlainText -SecureString $secret
                         Write-Verbose "Retrieved SecureString [$vaultName]; converted to plain string."
                         return $raw
                     } else {
@@ -194,9 +195,7 @@ function Resolve-VaultCredential {
                             $raw = if ([string]::IsNullOrWhiteSpace($u)) { ":${p}" } else { "${u}:${p}" }
                             return $raw
                         } elseif ($secret -is [System.Security.SecureString]) {
-                            $raw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                                [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-                            )
+                            $raw = ConvertSecureStringToPlainText -SecureString $secret
                             return $raw
                         } else {
                             return [string]$secret

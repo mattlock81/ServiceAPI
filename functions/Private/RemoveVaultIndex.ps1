@@ -43,10 +43,12 @@ function Remove-VaultIndex {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.1.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
+                          Set-ServiceApiSecureMode.
         1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the help examples and .OUTPUTS required by the CMF standard.
@@ -81,12 +83,14 @@ function Remove-VaultIndex {
     # Ensure directory exists (defensive; should already exist if an index entry was found)
     if (-not (Test-Path -Path $indexDir -PathType Container)) {
         New-Item -Path $indexDir -ItemType Directory -Force | Out-Null
+        Set-ServiceApiSecureMode -Path $indexDir
     }
 
     try {
         $current | ConvertTo-Json -Depth 3 |
             Set-Content -LiteralPath $indexPath -Encoding UTF8 -Force
         Write-Verbose "ServiceAPI: Vault index updated: removed [$Label] from [$ServiceKey]"
+        Set-ServiceApiSecureMode -Path $indexPath
     } catch {
         Write-Warning "ServiceAPI: Failed to write credential-index.json: $_"
     }

@@ -54,10 +54,12 @@ function Write-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.4.1
-        Date        : 06-OCT-26
+        Version     : 1.5.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.5.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
+                          Set-ServiceApiSecureMode.
         1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.4.0 | 06OCT26 | Added optional -ProbeEndpoint parameter, persisted to the services.json
@@ -92,6 +94,7 @@ function Write-ServiceConfig {
     if (-not (Test-Path -Path $configDir -PathType Container)) {
         New-Item -Path $configDir -ItemType Directory -Force | Out-Null
         Write-Verbose "ServiceAPI: Created config directory: $configDir"
+        Set-ServiceApiSecureMode -Path $configDir
     }
 
     # Read current file content or start with empty hashtable
@@ -124,6 +127,7 @@ function Write-ServiceConfig {
         $current | ConvertTo-Json -Depth 5 |
             Set-Content -LiteralPath $configPath -Encoding UTF8 -Force
         Write-Verbose "ServiceAPI: Persisted service [$ServiceName-$Environment] to: $configPath"
+        Set-ServiceApiSecureMode -Path $configPath
     } catch {
         throw "ServiceAPI: Failed to write services.json: $_"
     }
