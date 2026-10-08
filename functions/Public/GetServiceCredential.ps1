@@ -80,10 +80,12 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.7.1
-        Date        : 06-OCT-26
+        Version     : 2.8.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.8.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
+                          Windows only; on Linux an unregistered SSODomain is reported with a clear message.
         2.7.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.7.0 | 01OCT26 | Added AriaOidc SSO provider support to the SSO refresh block. When
@@ -243,7 +245,7 @@ function Get-ServiceCredential {
                         $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
                         $global:ServiceRegistry[$Service][$Environment].SSODomain) {
                         $ariaDomain = $global:ServiceRegistry[$Service][$Environment].SSODomain
-                    } else {
+                    } elseif ($script:ServiceApiIsWindows) {
                         try {
                             $sysInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
                             if ($sysInfo.PartOfDomain -and $sysInfo.Domain) {
@@ -252,7 +254,7 @@ function Get-ServiceCredential {
                         } catch { }
                     }
                     if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
-                        throw "Could not resolve Aria domain for [$Service-$Environment] during SSO refresh. Register SSODomain via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
+                        throw "Could not resolve Aria domain for [$Service-$Environment] during SSO refresh. Register SSODomain via Register-CustomService -SSOProvider Aria -SSODomain <domain>. Domain auto-detection works on domain-joined Windows hosts only."
                     }
 
                     $ariaBaseUrl = $null

@@ -100,10 +100,12 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.8.2
-        Date        : 06-OCT-26
+        Version     : 2.9.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.9.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
+                          Windows only; on Linux an unregistered SSODomain is reported with a clear message.
         2.8.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.8.1 | 06OCT26 | The AriaOidc branch now passes the service's registered
@@ -295,7 +297,7 @@ function Set-ServiceCredential {
                 $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
                 $global:ServiceRegistry[$Service][$Environment].SSODomain) {
                 $ariaDomain = $global:ServiceRegistry[$Service][$Environment].SSODomain
-            } else {
+            } elseif ($script:ServiceApiIsWindows) {
                 try {
                     $sysInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
                     if ($sysInfo.PartOfDomain -and $sysInfo.Domain) {
@@ -307,7 +309,7 @@ function Set-ServiceCredential {
                 }
             }
             if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
-                throw "Could not resolve Aria domain for [$Service-$Environment]. System is not domain-joined and no SSODomain is registered. Register one via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
+                throw "Could not resolve Aria domain for [$Service-$Environment]. No SSODomain is registered and this host is not a domain-joined Windows system (domain auto-detection is Windows-only). Register one via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
             }
 
             # Resolve BaseUrl from the registry, the same source Get-ServiceConfig would use
