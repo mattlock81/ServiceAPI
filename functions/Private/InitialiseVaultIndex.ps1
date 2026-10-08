@@ -39,10 +39,12 @@ function Initialise-VaultIndex {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.3
-        Date        : 07-OCT-26
+        Version     : 1.2.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.2.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
+                          Set-ServiceApiSecureMode.
         1.1.3 | 07OCT26 | File renamed from InitializeVaultIndex.ps1 to InitialiseVaultIndex.ps1 so
                           the file name matches the function name and the Australian/British
                           spelling convention. No code change.
@@ -70,11 +72,13 @@ function Initialise-VaultIndex {
     if (-not (Test-Path -Path $indexDir -PathType Container)) {
         New-Item -Path $indexDir -ItemType Directory -Force | Out-Null
         Write-Verbose "ServiceAPI: Created vault index directory: $indexDir"
+        Set-ServiceApiSecureMode -Path $indexDir
     }
 
     try {
         '{}' | Set-Content -LiteralPath $indexPath -Encoding UTF8 -Force
         Write-Verbose "ServiceAPI: Created empty credential-index.json at: $indexPath"
+        Set-ServiceApiSecureMode -Path $indexPath
     } catch {
         Write-Warning "ServiceAPI: Failed to create credential-index.json: $_"
     }
