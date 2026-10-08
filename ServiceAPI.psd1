@@ -12,10 +12,10 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.10.4'
+ModuleVersion = '3.0.0'
 
-# Supported PSEditions
-# CompatiblePSEditions = @()
+# Supported PSEditions: Windows PowerShell 5.1 (Desktop) and PowerShell 7 (Core, Windows and Linux)
+CompatiblePSEditions = 'Desktop', 'Core'
 
 # ID used to uniquely identify this module
 GUID = 'a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'
@@ -30,7 +30,7 @@ CompanyName = 'Australian Signals Directorate'
 Copyright = '(c) 2026 Matthew Sillett. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'REST API framework for PowerShell supporting Basic Auth, static Bearer token, OAuth SSO, and SecretManagement vault-integrated credential resolution. Predefined support for Atlassian Data Centre, OPNsense, and Google Workspace APIs. User configuration stored in AppData and LocalAppData; module updates never overwrite user data.'
+Description = 'REST API framework for PowerShell on Windows and Linux supporting Basic Auth, static Bearer token, OAuth SSO, QueryParam and unauthenticated requests, with SecretManagement vault-integrated credential resolution. Services are registered by the user. User configuration is stored per user (AppData and LocalAppData on Windows, the XDG directories on Linux); module updates never overwrite user data.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'
@@ -95,7 +95,7 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = 'API','REST','Atlassian','Jira','Confluence','OPNsense','Google','OAuth','SSO','SecretManagement','Vault','DevOps','Automation'
+        Tags = 'API','REST','Atlassian','Jira','Confluence','OPNsense','Google','OAuth','SSO','SecretManagement','Vault','DevOps','Automation','Linux','Windows','CrossPlatform'
 
         # A URL to the licence for this module.
         # LicenseUri = ''
@@ -107,7 +107,20 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '2.10.4 | 07OCT26 | Australian/British spelling consistency. The private files InitializeServiceConfig.ps1
+        ReleaseNotes = '3.0.0 | 08OCT26 | Linux support. The module now loads on Windows and on Linux. RHEL-family Linux is the
+                  target (RHEL, AlmaLinux, Rocky, Fedora, CentOS, Oracle Linux); other Linux distributions load
+                  with a warning, and macOS is refused. Phase 0.6 of the loader detects the platform and sets
+                  ServiceApiPlatform. On Linux the service registry (services.json) lives in the XDG config
+                  directory and the vault index (credential-index.json) in the XDG data directory, restricted to
+                  the owner (700 and 600) by the new private Set-ServiceApiSecureMode. SecureString conversion no
+                  longer uses PtrToStringAuto, which decodes as UTF-8 on Linux and misreads the UTF-16 BSTR
+                  (Convert-VaultSecretToCredential 1.1.0, Resolve-VaultCredential 1.3.0). New private
+                  Open-ServiceApiBrowser for the AriaOidc login (Start-Process on Windows, xdg-open on a graphical
+                  Linux session, a message on a headless host). The Aria domain-joined fallback reads
+                  Win32_ComputerSystem and now runs on Windows only. The functions folder is referenced by its
+                  on-disk lowercase name. Windows behaviour is unchanged. Not yet tested on a RHEL-family host and
+                  not re-tested on Windows after this change.
+2.10.4 | 07OCT26 | Australian/British spelling consistency. The private files InitializeServiceConfig.ps1
                   and InitializeVaultIndex.ps1 are renamed InitialiseServiceConfig.ps1 and InitialiseVaultIndex.ps1 to
                   match their function names (Initialise-ServiceConfig, Initialise-VaultIndex), and the manifest text now
                   reads Data Centre and licence. No code change.

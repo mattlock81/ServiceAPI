@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.10.4  
+**Version**: 3.0.0  
 **Author**: Matthew Sillett  
 **Organisation**:
 
@@ -16,6 +16,8 @@ Services are registered once with a BaseUrl and stored in a user-scoped `service
 
 ServiceAPI degrades gracefully when optional dependencies (`SysCommon`, `Microsoft.PowerShell.SecretManagement`) are absent.
 
+**Platform support (since v3.0.0):** Windows (Windows PowerShell 5.1 and PowerShell 7) and Linux (PowerShell 7). RHEL-family Linux (RHEL, AlmaLinux, Rocky, Fedora, CentOS, Oracle Linux) is the target; other Linux distributions load with a warning, and macOS is refused. The module detects the platform on load. On Linux, user data follows the XDG base directories and is restricted to the owner. Linux support is new and has not yet been tested on a RHEL-family host; see [docs/Rehydration.md](docs/Rehydration.md) for what is and is not verified.
+
 Current state, design decisions, open items and planned scope are tracked in [docs/Rehydration.md](docs/Rehydration.md). Start there when picking up the project; this readme is the identity record.
 
 ---
@@ -25,6 +27,8 @@ Current state, design decisions, open items and planned scope are tracked in [do
 ```powershell
 Import-Module ServiceAPI
 ```
+
+**Linux:** install PowerShell 7, then place the module under a path in `$env:PSModulePath` (for example `~/.local/share/powershell/Modules/ServiceAPI`) and import it. Optional: install `Microsoft.PowerShell.SecretManagement` and a vault extension from the PowerShell Gallery for vault storage. An internal service whose certificate chains to a private CA needs that CA in the system trust store (on RHEL-family hosts, copy it to `/etc/pki/ca-trust/source/anchors/` and run `update-ca-trust`). Two behaviours differ from Windows: the Aria domain is never auto-detected from the host (register `-SSODomain`), and the `AriaOidc` browser login needs a browser on the same host as the module, because the courier posts to `127.0.0.1`. On a headless host, forward the listener port from a workstation (`ssh -L <port>:127.0.0.1:<port> <host>`) and open the portal there.
 
 ---
 
@@ -115,8 +119,8 @@ Supported providers: `GCloud`, `AzureCLI`, `Aria`, `AriaOidc`. SSO tokens are ca
 Unlike `GCloud`/`AzureCLI`, Aria is REST-native rather than CLI-based. It sources its underlying domain-account credential via `Get-ServiceCredential -AuthType Basic` under the service's own name with label `'ssoidentity'` (so that credential is itself vault-backed — the first SSO call for Aria can bootstrap it interactively if it isn't already stored), then performs a two-step exchange: a CSP refresh-token request, followed by an IaaS bearer-token request.
 
 ```powershell
-# Register with Aria — SSODomain is optional on domain-joined systems (falls back to the
-# joined domain automatically); set it explicitly on non-domain-joined machines
+# Register with Aria — SSODomain is optional on domain-joined Windows systems (falls back to the
+# joined domain automatically); set it explicitly on non-domain-joined machines and on Linux
 Register-CustomService -ServiceName aria -BaseUrl 'https://aria.example.com' -SSOProvider Aria -SSODomain 'CorpDomain' -Persistent
 
 # Bootstraps the 'ssoidentity' Basic credential interactively on first use, then
@@ -332,10 +336,11 @@ Clear-ServiceCredential -Service myapi -Environment prod -AuthType Token -Force
 
 # Verify vault contents
 Get-SecretInfo | Format-Table Name, Type, VaultName
-Get-Content "$env:LOCALAPPDATA\ServiceAPI\credential-index.json"
+Get-Content "$env:LOCALAPPDATA\ServiceAPI\credential-index.json"          # Windows
+Get-Content "$HOME/.local/share/ServiceAPI/credential-index.json"            # Linux (or $XDG_DATA_HOME/ServiceAPI)
 ```
 
-Vault labels are tracked in a machine-local `credential-index.json` at `$env:LOCALAPPDATA\ServiceAPI\`. This index is never committed to source control. `Clear-ServiceCredential` keeps it in sync via the new `Remove-VaultIndex` private function (mirrors `Write-VaultIndex`).
+Vault labels are tracked in a machine-local `credential-index.json` at `$env:LOCALAPPDATA\ServiceAPI\` on Windows and in the XDG data directory (`~/.local/share/ServiceAPI/`) on Linux. This index is never committed to source control. `Clear-ServiceCredential` keeps it in sync via the new `Remove-VaultIndex` private function (mirrors `Write-VaultIndex`).
 
 ### SecretStore limitation and multiple vaults
 
@@ -382,10 +387,12 @@ ServiceAPI/
     │   ├── InvokeSSOProviderToken.ps1
     │   ├── NewServiceKey.ps1
     │   ├── NewStandardHeaders.ps1
+    │   ├── OpenServiceApiBrowser.ps1
     │   ├── ReadServiceConfig.ps1
     │   ├── ReadVaultIndex.ps1
     │   ├── RemoveVaultIndex.ps1
     │   ├── ResolveVaultCredential.ps1
+    │   ├── SetServiceApiSecureMode.ps1
     │   ├── TestIsTokenValue.ps1
     │   ├── TestServiceBearer.ps1
     │   ├── WaitAriaCourierToken.ps1
@@ -405,8 +412,8 @@ User data files are stored outside the module directory and are never committed 
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
-| `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` | Machine-local vault label index — tracks which named credentials exist per service key |
+| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
+| `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` (Windows), `~/.local/share/ServiceAPI/` (Linux, or `$XDG_DATA_HOME`) | Machine-local vault label index — tracks which named credentials exist per service key |
 
 ---
 
@@ -414,6 +421,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.0.0 | 08Oct26 | Linux support. Phase 0.6 platform detection (Windows or Linux; RHEL-family is the target, other Linux warns, macOS refused). XDG data locations and owner-only permissions on Linux (new private Set-ServiceApiSecureMode 1.0.0, used by Initialise-ServiceConfig 1.3.0, Initialise-VaultIndex 1.2.0, Write-ServiceConfig 1.5.0, Write-VaultIndex 1.2.0, Remove-VaultIndex 1.1.0). SecureString conversion no longer uses PtrToStringAuto (Convert-VaultSecretToCredential 1.1.0, Resolve-VaultCredential 1.3.0). New private Open-ServiceApiBrowser 1.0.0 used by Invoke-AriaOidcLogin 1.4.0. The Aria domain-joined fallback runs on Windows only (Get-ServiceCredential 2.8.0, Set-ServiceCredential 2.9.0). Windows behaviour unchanged; untested on RHEL-family Linux and not re-tested on Windows. |
 | 2.10.4 | 07Oct26 | Australian/British spelling consistency, no code change. The private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` are renamed `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` to match their function names (`Initialise-ServiceConfig`, `Initialise-VaultIndex`), and the manifest text now reads Data Centre and licence. |
 | 2.10.3 | 07Oct26 | Write-ServiceApiHandledError (1.1.0) passes the context to Debug-Error -Message when the installed SYSCommon provides it (2.8.0 and later), so the context and the error share one log entry. Older SYSCommon keeps the previous behaviour of logging the context separately through Write-Log. |
 | 2.10.2 | 07Oct26 | Fixed Write-ServiceApiHandledError (1.0.1) dropping its -Message when SYSCommon Debug-Error is available. Debug-Error has no parameter for caller context, so the message is now logged as its own entry through Write-Log, at the same severity and quiet for an HTTP 404, before the error is reported. The local fallback is unchanged. |
