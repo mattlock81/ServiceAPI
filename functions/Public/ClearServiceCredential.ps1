@@ -80,7 +80,7 @@ function Clear-ServiceCredential {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        2.7.0 | 08OCT26 | Vault selection: new -Vault parameter. The secret is removed from the vault recorded in the index
+        2.7.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves). The secret is removed from the vault recorded in the index
                           (or -Vault) instead of the hardcoded LocalStore.
         2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
@@ -131,6 +131,9 @@ function Clear-ServiceCredential {
         # Token types during targeted clearing. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [switch]$Global,
+        [switch]$Force,
+
         [ArgumentCompleter({
             param($cmd, $param, $word, $ast, $fakeBound)
             if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
@@ -143,10 +146,7 @@ function Clear-ServiceCredential {
                     }
             }
         })]
-        [string]$Vault,
-
-        [switch]$Global,
-        [switch]$Force
+        [string]$Vault
     )
 
     $targets = [System.Collections.Generic.List[hashtable]]::new()

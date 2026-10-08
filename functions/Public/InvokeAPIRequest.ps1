@@ -121,7 +121,7 @@ function Invoke-APIRequest {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter, passed through to Get-ServiceConfig, Get-ServiceCredential
+        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves), passed through to Get-ServiceConfig, Get-ServiceCredential
                           and the 403 credential refresh.
         2.8.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
@@ -201,6 +201,16 @@ function Invoke-APIRequest {
         # Vault credential label: applies to Basic and Token. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [string]$Environment = 'prod',
+        [object]$Body,
+        [object]$Headers,
+        [string]$BaseUrl,
+
+        # Bypasses vault lookup and storage for Basic and Token. Ignored for SSO.
+        [switch]$SessionOnly,
+
+        [switch]$Silent,
+
         [ArgumentCompleter({
             param($cmd, $param, $word, $ast, $fakeBound)
             if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
@@ -213,17 +223,7 @@ function Invoke-APIRequest {
                     }
             }
         })]
-        [string]$Vault,
-
-        [string]$Environment = 'prod',
-        [object]$Body,
-        [object]$Headers,
-        [string]$BaseUrl,
-
-        # Bypasses vault lookup and storage for Basic and Token. Ignored for SSO.
-        [switch]$SessionOnly,
-
-        [switch]$Silent
+        [string]$Vault
     )
 
     # QueryParam is vault-backed like Basic, so it is eligible for 403 retry.
