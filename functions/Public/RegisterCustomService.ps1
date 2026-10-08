@@ -95,7 +95,7 @@ function Register-CustomService {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        2.6.2 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
+        2.6.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
         2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.6.0 | 06OCT26 | Added -ProbeEndpoint. The relative endpoint used to test whether a

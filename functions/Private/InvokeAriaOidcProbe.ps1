@@ -47,7 +47,7 @@ function Invoke-AriaOidcProbe {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        1.0.4 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
+        1.0.4 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.0.3 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.2 | 06OCT26 | The endpoint status checks now use Invoke-ServiceApiHttpRequest
