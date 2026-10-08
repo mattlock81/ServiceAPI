@@ -168,9 +168,16 @@ $global:ServiceApiVaultIndex = @{}
 # ==============================
 # Only runs when SecretManagement is detected. Creates credential-index.json if absent
 # and loads the index into $global:ServiceApiVaultIndex for use during credential resolution.
+# The index maps service key to label to vault name; an older array-per-key file is migrated.
 if ($script:ServiceApiHasSecretManagement) {
     Initialise-VaultIndex
     $global:ServiceApiVaultIndex = Read-VaultIndex
+    if ($script:ServiceApiVaultIndexLegacy) {
+        # The file used the older array-per-key format: rewrite it as label -> vault now, so the
+        # assignment of legacy labels does not change if another vault is registered later.
+        Save-VaultIndex -Index $global:ServiceApiVaultIndex
+        Write-Verbose 'ServiceAPI: Migrated credential-index.json to the label-to-vault format.'
+    }
     Write-Verbose "ServiceAPI: Vault index loaded ($($global:ServiceApiVaultIndex.Count) service key(s))."
 }
 

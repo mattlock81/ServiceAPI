@@ -29,6 +29,12 @@ function Get-ServiceConfig {
         The vault label to retrieve. Defaults to 'default'.
         Applies to Basic and Token auth types.
 
+    .PARAMETER Vault
+        The registered SecretManagement vault to use. Overrides the vault recorded for the label and
+        the saved default (see Get-ServiceVault). An unregistered name is rejected. Ignored with
+        -SessionOnly and for SSO.
+
+
     .PARAMETER Environment
         Environment to resolve. Defaults to prod.
 
@@ -60,10 +66,11 @@ function Get-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.5.2
-        Date        : 06-OCT-26
+        Version     : 2.6.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.6.0 | 08OCT26 | Vault selection: new -Vault parameter, passed through to Get-ServiceCredential.
         2.5.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.5.1 | 17MAY26 | Added 'None' to -AuthType ValidateSet. Credential resolution
@@ -105,6 +112,20 @@ function Get-ServiceConfig {
 
         # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
+
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault,
 
         [string]$Environment = 'prod',
         [string]$BaseUrl,
@@ -167,6 +188,7 @@ function Get-ServiceConfig {
             if ($SessionOnly -and $AuthType -ne 'SSO') { $credParams['SessionOnly'] = $true }
             if ($Endpoint)                              { $credParams['Endpoint']    = $Endpoint }
             if ($BaseUrl)                               { $credParams['BaseUrl']     = $BaseUrl }
+            if ($Vault)                                 { $credParams['Vault']       = $Vault }
 
             $credentialHeaders = Get-ServiceCredential @credParams
 
