@@ -22,7 +22,7 @@ function Write-ServiceConfig {
         The base URL to persist for this service/environment.
 
     .PARAMETER SSOProvider
-        Optional. The SSO provider string to persist (e.g., GCloud, AzureCLI, Aria, AriaOidc).
+        Optional. The SSO provider string to persist (e.g., GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken).
 
     .PARAMETER SSODomain
         Optional. The domain string to persist for the Aria SSO provider.

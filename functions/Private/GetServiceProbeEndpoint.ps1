@@ -43,10 +43,11 @@ function Get-ServiceProbeEndpoint {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.1
+        Version     : 1.1.0
         Date        : 08-OCT-26
 
         CHANGE LOG
+        1.1.0 | 08OCT26 | The AriaApiToken provider shares the AriaOidc default probe endpoint.
         1.0.1 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.0.0 | 06OCT26 | Initial version. Single source of truth for the probe endpoint,
                           shared by the SSO 403 retry and the AriaOidc bearer selection.
@@ -72,7 +73,7 @@ function Get-ServiceProbeEndpoint {
         return ([string]$entry.ProbeEndpoint).TrimStart('/')
     }
 
-    if ($entry.SSOProvider -eq 'AriaOidc') {
+    if ($entry.SSOProvider -in @('AriaOidc', 'AriaApiToken')) {
         return 'iaas/api/projects?$top=1'
     }
 
