@@ -1,8 +1,8 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.10.4 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
-**Last updated**: 07-OCT-26
+**Version at time of writing**: 3.0.0 (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
+**Last updated**: 08-OCT-26
 **Author**: Matthew Sillett
 
 > Current-state and design-decision record for this repository. `readme.md` is the identity
@@ -21,14 +21,16 @@
 - v2.10.2 fixes one defect: `Write-ServiceApiHandledError` dropped its `-Message` when SYSCommon `Debug-Error` was available. The message is now logged as its own entry through `Write-Log` first (D17).
 - v2.10.3 passes the context to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later) and keeps the `Write-Log` path for older SYSCommon (D17).
 - v2.10.4 changes no code. It renames the two private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` to `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` so they match their functions, and corrects the manifest text to Data Centre and licence (D18).
+- v3.0.0 adds Linux support (D19 to D21). Phase 0.6 of the loader detects the platform; on Linux the service registry and the vault index move to the XDG directories and are restricted to the owner; SecureString conversion no longer uses `PtrToStringAuto`; the new `Open-ServiceApiBrowser` opens the AriaOidc login portal on either platform; the Aria domain-joined fallback runs on Windows only. Windows behaviour is intended to be unchanged but has not been re-tested.
 - Verification so far, on the AWS WorkSpace only (Windows Server 2025, build 26100): every file parses and the module imports as 2.10.4 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
 - Auth types: `Basic`, `Token`, `SSO`, `None`, `QueryParam`.
 - SSO providers: `GCloud`, `AzureCLI`, `Aria` (username/password, pre-v9 only), `AriaOidc`.
-- Loader: six-phase dot-source loader in `ServiceAPI.psm1` (dependency detection, paths,
+- Loader: dot-source loader in `ServiceAPI.psm1` (dependency detection, platform detection (Phase 0.6), paths,
   Private then Public functions, global state, vault index, registry load from
   `services.json`, exit cleanup).
 - User data lives outside the module: `services.json` in `$env:APPDATA\ServiceAPI\` and
-  `credential-index.json` in `$env:LOCALAPPDATA\ServiceAPI\`.
+  `credential-index.json` in `$env:LOCALAPPDATA\ServiceAPI\` on Windows; on Linux, `~/.config/ServiceAPI/` and
+  `~/.local/share/ServiceAPI/` (or `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`), mode 700 and 600.
 - Optional dependencies degrade gracefully: `SysCommon` (`Debug-Error`) and
   `Microsoft.PowerShell.SecretManagement`.
 
@@ -54,6 +56,9 @@
 | D16 | PowerShell source files are plain ASCII, with no em dashes or other typographic characters | Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected. v2.10.0 added a BOM as a stopgap. v2.10.1 replaced all 196 em dashes (and one copyright sign and one arrow), so no BOM is needed. |
 | D17 | Handled-error context goes to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later); otherwise it is logged separately through SYSCommon `Write-Log` before `Debug-Error` reports the error | `Debug-Error` originally had no parameter for caller context (it took `-ErrorRecord`, `-Severity` and `-Bug`) and logs an HTTP response body in place of the exception message, so wrapping the context into the exception would not reliably surface it. SYSCommon 2.8.0 added `-Message`, which puts the context and the error in one log entry. The module detects the parameter with `Get-Command`, so it works with either SYSCommon generation. On older SYSCommon, `Write-Log` does not throw, so `Debug-Error` still controls the rethrow for Critical; the separate context line is skipped for an HTTP 404 under the same noise rule as `Debug-Error`, and falls back to the standard streams when `Write-Log` is absent. |
 | D18 | Australian/British English throughout, including file names, function names, help, messages and documentation | The convention was first applied in 2.4.3, but two private file names kept the American spelling (`InitializeServiceConfig.ps1`, `InitializeVaultIndex.ps1`) while their functions were already `Initialise-...`; 2.10.4 renamed the files to match. Names that belong to something external are kept as they are: the HTTP `Authorization` header, .NET types such as `JavaScriptSerializer`, and manifest keys such as `LicenseUri` and `RequireLicenseAcceptance`. Product names follow the house spelling (Data Centre). Historical changelog entries keep the old names they record. |
+| D19 | The module detects the platform on load (Phase 0.6). Windows and Linux are supported; RHEL-family Linux is the tested target; other Linux distributions load with a warning; macOS and anything else is refused | The Linux target is AlmaLinux 10 for the home lab and RHEL-based hosts at work. A warning rather than a refusal on other Linux keeps the module usable without promising support. `$IsWindows` does not exist in Windows PowerShell 5.1, which is Windows-only, so an absent variable means Windows. The family is read from `ID` and `ID_LIKE` in `/etc/os-release`. |
+| D20 | On Linux, user data follows the XDG base directories and is restricted to the owner (700 directories, 600 files) | `$env:APPDATA` and `$env:LOCALAPPDATA` are empty on Linux, which stopped the loader at Phase 1. The files hold no secret values, only the service registry and credential labels, but other local users have no need to read them. `Set-ServiceApiSecureMode` uses `[System.IO.File]::SetUnixFileMode` and falls back to `chmod`. A file is created with the process umask first and restricted immediately afterwards. |
+| D21 | A SecureString is converted to plain text only through `ConvertSecureStringToPlainText` (`SecureStringToBSTR`, `PtrToStringBSTR`, `ZeroFreeBSTR`) | `PtrToStringAuto` decodes as UTF-8 on Linux, which misreads a UTF-16 BSTR and truncates the result, and the three call sites never freed the BSTR. The single helper is correct on both platforms. |
 
 ## 3. Environment Facts (Aria v9, classic tenant)
 
@@ -89,6 +94,11 @@
    unverified in this repository, although the highside implementation they were taken from was
    tested by its author.
 5. The Linux behaviour of `SecretManagement.KeePass`, and the availability of a PowerShell 7 package for RHEL 10, are unverified.
+6. The Linux port is verified only by import and a smoke test on PowerShell 7.6 on Ubuntu. It has not been run on a RHEL-family host (the AlmaLinux 10 test VMs are the intended target), the macOS refusal has not been exercised, and the Windows branch has not been re-tested since the change.
+7. Whether `X509VerificationFlags.IgnoreInvalidName` in the certificate validator has the same effect on the Linux (OpenSSL) chain engine as on Windows is unverified. Private CAs must be in the system trust store on Linux (`update-ca-trust` on RHEL-family hosts).
+8. The AriaOidc browser login on a headless Linux host needs the browser on the same host, or an SSH port forward of the loopback listener. Neither is tested. `xdg-open` launch on a graphical session is untested.
+9. `SysCommon` is a separate module and its own Linux compatibility is not covered here; ServiceAPI falls back to local error handling when it is absent.
+10. Linux has no equivalent of the domain-joined fallback for the Aria domain; `-SSODomain` must be registered. Reading an SSSD or realm join (`realm list`) was considered and left out as untested.
 
 ## 5. Planned Scope
 
@@ -155,7 +165,7 @@ No code for this section exists at v2.9.0. It records the design so that a fresh
 - A loader phase sets `$script:ServiceApiIsWindows` and `$script:ServiceApiIsLinux` (`$IsWindows` is absent in PowerShell 5.1, which is Windows-only), and one path helper builds the config and index paths.
 - Replace `PtrToStringAuto` on a BSTR (likely wrong on Linux) with `ConvertFrom-SecureString -AsPlainText` on PowerShell 7.
 
-Implementation order: loader OS check and path helper, vault functions, `-Vault` and defaults, documentation, skill update.
+Implementation order (the loader OS check and path helper were completed in 3.0.0): vault functions, `-Vault` and defaults, documentation, skill update.
 
 ---
 
@@ -163,6 +173,7 @@ Implementation order: loader OS check and path helper, vault functions, `-Vault`
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.8.0 | 08-OCT-26 | Linux port recorded (D19 to D21, open items 6 to 10). Brought current to module v3.0.0. |
 | 1.7.0 | 07-OCT-26 | Added D18 (Australian/British English including file names). Corrected the machine description: the AWS WorkSpace is Windows Server 2025, not Windows 10, so the TLS 1.3 limitation applies to Windows 10 hosts only. Brought current to module v2.10.4. |
 | 1.6.0 | 07-OCT-26 | D17 revised: handled-error context uses Debug-Error -Message when SYSCommon 2.8.0 or later provides it. SYSCommon encoding gap recorded under planned scope. Brought current to module v2.10.3. |
 | 1.5.0 | 07-OCT-26 | Added D17 (handled-error context logged through Write-Log). Brought current to module v2.10.2. |
