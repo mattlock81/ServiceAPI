@@ -1,8 +1,8 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 2.10.4 (verified statically and by import on PowerShell 7 and Windows PowerShell 5.1; not yet run against a real Aria tenant from this repository)
-**Last updated**: 07-OCT-26
+**Version at time of writing**: 3.0.0 (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
+**Last updated**: 08-OCT-26
 **Author**: Matthew Sillett
 
 > Current-state and design-decision record for this repository. `readme.md` is the identity
@@ -21,14 +21,20 @@
 - v2.10.2 fixes one defect: `Write-ServiceApiHandledError` dropped its `-Message` when SYSCommon `Debug-Error` was available. The message is now logged as its own entry through `Write-Log` first (D17).
 - v2.10.3 passes the context to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later) and keeps the `Write-Log` path for older SYSCommon (D17).
 - v2.10.4 changes no code. It renames the two private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` to `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` so they match their functions, and corrects the manifest text to Data Centre and licence (D18).
+- v3.0.0 adds Linux support (D19 to D21). Phase 0.6 of the loader detects the platform; on Linux the service registry and the vault index move to the XDG directories and are restricted to the owner; SecureString conversion no longer uses `PtrToStringAuto`; the new `Open-ServiceApiBrowser` opens the AriaOidc login portal on either platform; the Aria domain-joined fallback runs on Windows only. Windows behaviour is intended to be unchanged but has not been re-tested.
+- Vault selection (unreleased, after 3.0.0) is built. The index maps `service-key -> label -> vault`; `Get-ServiceVault` and `Set-ServiceVault` manage a saved default in `vault-config.json`; `-Vault` is on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`; `Resolve-ServiceVault` chooses the vault (D22 to D24). The hardcoded `LocalStore` and both unscoped `Get-Secret` calls are gone. Verified with 19 scripted checks against two KeePass key-file vaults on PowerShell 7.6 on Ubuntu, plus four unattended scenarios; not run on Windows or a RHEL-family host. No module version has been assigned to it: the version is the owner's decision.
+- The `AriaApiToken` SSO provider is built (unreleased, D26): an Aria API token stored in a vault under the label `apitoken` is exchanged for a bearer by a ladder of call shapes (`csp-authorize`, `oauth-tenant`, `iaas-login`), with the bearer chosen by test. It needs no browser, so it suits unattended and headless Linux use. Proven against a local emulation (13 checks) only; the call shapes have not been verified against a tenant. The verification plan is section 8.
+- Tests live in `tests/` (see `tests/README.md`): a local HTTP/HTTPS server with generated certificates drives `Invoke-APIRequest` end to end (22 checks), and two vault runners cover selection (19 checks) and unattended behaviour (4 scenarios). They run on Linux only and isolate state through `HOME`. All pass on PowerShell 7.6 on Ubuntu; they have not been run on Windows or a RHEL-family host.
+- The certificate validator records why it rejected a certificate (untrusted root with the chain status, or a host name missing from the certificate) and the transport error ends with `Certificate rejected: <reason>` (D25). Unreleased, with the vault selection work.
 - Verification so far, on the AWS WorkSpace only (Windows Server 2025, build 26100): every file parses and the module imports as 2.10.4 on both PowerShell 7 and Windows PowerShell 5.1. The certificate validator compiles under both compilers and its host-name matching passes (exact, case-insensitive, wildcard, IP address, untrusted root rejected). Earlier loopback smoke tests passed for the listener and the refresh ladder. The transport and the 403 guards were reimplemented from the highside v2.9.1 to v2.9.3 specification, which its author tested. This repository's copy has not been run against a tenant.
 - Auth types: `Basic`, `Token`, `SSO`, `None`, `QueryParam`.
 - SSO providers: `GCloud`, `AzureCLI`, `Aria` (username/password, pre-v9 only), `AriaOidc`.
-- Loader: six-phase dot-source loader in `ServiceAPI.psm1` (dependency detection, paths,
+- Loader: dot-source loader in `ServiceAPI.psm1` (dependency detection, platform detection (Phase 0.6), paths,
   Private then Public functions, global state, vault index, registry load from
   `services.json`, exit cleanup).
 - User data lives outside the module: `services.json` in `$env:APPDATA\ServiceAPI\` and
-  `credential-index.json` in `$env:LOCALAPPDATA\ServiceAPI\`.
+  `credential-index.json` in `$env:LOCALAPPDATA\ServiceAPI\` on Windows; on Linux, `~/.config/ServiceAPI/` and
+  `~/.local/share/ServiceAPI/` (or `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME`), mode 700 and 600.
 - Optional dependencies degrade gracefully: `SysCommon` (`Debug-Error`) and
   `Microsoft.PowerShell.SecretManagement`.
 
@@ -54,6 +60,14 @@
 | D16 | PowerShell source files are plain ASCII, with no em dashes or other typographic characters | Windows PowerShell 5.1 reads a file without a byte-order mark as ANSI, and the last byte of an em dash then reads as a closing quote, which breaks parsing. 27 of 34 files were affected. v2.10.0 added a BOM as a stopgap. v2.10.1 replaced all 196 em dashes (and one copyright sign and one arrow), so no BOM is needed. |
 | D17 | Handled-error context goes to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later); otherwise it is logged separately through SYSCommon `Write-Log` before `Debug-Error` reports the error | `Debug-Error` originally had no parameter for caller context (it took `-ErrorRecord`, `-Severity` and `-Bug`) and logs an HTTP response body in place of the exception message, so wrapping the context into the exception would not reliably surface it. SYSCommon 2.8.0 added `-Message`, which puts the context and the error in one log entry. The module detects the parameter with `Get-Command`, so it works with either SYSCommon generation. On older SYSCommon, `Write-Log` does not throw, so `Debug-Error` still controls the rethrow for Critical; the separate context line is skipped for an HTTP 404 under the same noise rule as `Debug-Error`, and falls back to the standard streams when `Write-Log` is absent. |
 | D18 | Australian/British English throughout, including file names, function names, help, messages and documentation | The convention was first applied in 2.4.3, but two private file names kept the American spelling (`InitializeServiceConfig.ps1`, `InitializeVaultIndex.ps1`) while their functions were already `Initialise-...`; 2.10.4 renamed the files to match. Names that belong to something external are kept as they are: the HTTP `Authorization` header, .NET types such as `JavaScriptSerializer`, and manifest keys such as `LicenseUri` and `RequireLicenseAcceptance`. Product names follow the house spelling (Data Centre). Historical changelog entries keep the old names they record. |
+| D19 | The module detects the platform on load (Phase 0.6). Windows and Linux are supported; RHEL-family Linux is the tested target; other Linux distributions load with a warning; macOS and anything else is refused | The Linux target is AlmaLinux 10 for the home lab and RHEL-based hosts at work. A warning rather than a refusal on other Linux keeps the module usable without promising support. `$IsWindows` does not exist in Windows PowerShell 5.1, which is Windows-only, so an absent variable means Windows. The family is read from `ID` and `ID_LIKE` in `/etc/os-release`. |
+| D20 | On Linux, user data follows the XDG base directories and is restricted to the owner (700 directories, 600 files) | `$env:APPDATA` and `$env:LOCALAPPDATA` are empty on Linux, which stopped the loader at Phase 1. The files hold no secret values, only the service registry and credential labels, but other local users have no need to read them. `Set-ServiceApiSecureMode` uses `[System.IO.File]::SetUnixFileMode` and falls back to `chmod`. A file is created with the process umask first and restricted immediately afterwards. |
+| D21 | A SecureString is converted to plain text only through `ConvertSecureStringToPlainText` (`SecureStringToBSTR`, `PtrToStringBSTR`, `ZeroFreeBSTR`) | `PtrToStringAuto` decodes as UTF-8 on Linux, which misreads a UTF-16 BSTR and truncates the result, and the three call sites never freed the BSTR. The single helper is correct on both platforms. |
+| D25 | The certificate validator records the reason it rejected a certificate, and `Invoke-ServiceApiHttpRequest` appends it to the transport error as `Certificate rejected: <reason>` | The handshake callback can only return false, so the .NET error said only that the certificate was rejected by the validation callback. The platform's own message names the cause (`UntrustedRoot`, `RemoteCertificateNameMismatch`); the module's did not. The reason is kept per host in a static dictionary because the callback runs on the handshake thread, and read once when the request fails. C# 5 syntax only, for Windows PowerShell 5.1. A change to the class takes effect in a new process, because the type is compiled once per process. |
+| D26 | The `AriaApiToken` provider keeps the API token in the vault and exchanges it on demand; it caches the bearer, its expiry and the exchange shape, never the API token | A browser-session refresh token is memory-only, so every new process must log in again; an API token is long-lived and survives in a vault, which is what unattended runs need. Reading it from the vault on each exchange keeps it out of the process cache and honours `-Vault`. The shapes (`csp-authorize`, `oauth-tenant`, `iaas-login`) differ between Aria deployments and are tried in order with the winner cached, as the `AriaOidc` refresh ladder does. Transport failures stop the ladder; refusals try the next shape. Errors list each shape's status and scrub the token. A token containing a colon cannot be stored through `Set-ServiceCredential -AuthType Token` because it would be read as `key:secret`. |
+| D22 | The vault index records the vault name per label (`service-key -> label -> vault`); a single writer, `Save-VaultIndex`, writes it | Reads must go to the vault that holds the secret, and an unscoped `Get-Secret` returns a secret of the same name from either vault without warning (verified with two KeePass vaults). Names, never paths, because registrations are per user and per machine. The older array-per-key file is read as legacy and rewritten on load, so the assignment of legacy labels (saved default, else the only registered vault) is fixed at first load and does not change if another vault is registered later. |
+| D23 | `Resolve-ServiceVault` chooses the vault. Reads: `-Vault`, the recorded vault, the saved default, the only registered vault; otherwise a warning and `$null`. Writes: `-Vault`, the recorded vault for the label, the saved default, the only registered vault, a prompt, then the create-a-vault flow. Unattended sessions never prompt | The recorded vault comes before the saved default on writes, which is a deliberate addition to the proposed order: otherwise updating a credential held in a non-default vault would silently create a second copy in the default and flip the index. A read that cannot decide warns instead of guessing, for the same unscoped-lookup reason. An unregistered `-Vault` throws at the resolver; the credential functions turn that into a warning so a vault failure never blocks the in-memory operation. |
+| D24 | The module is vault-agnostic. Only `New-ServiceDefaultVault` assumes SecretStore | SecretStore is one store per user, so separate vaults need other extensions. `SecretManagement.KeePass` returns a token string as a SecureString, which the existing conversion handles, so no KeePass-specific code was needed beyond documentation. The create flow registers `LocalStore`, runs `Set-SecretStoreConfiguration` for the current user with password authentication, and saves it as the default. |
 
 ## 3. Environment Facts (Aria v9, classic tenant)
 
@@ -88,7 +102,15 @@
    validator compilation and host-name matching. Their runtime behaviour against a tenant is
    unverified in this repository, although the highside implementation they were taken from was
    tested by its author.
-5. The Linux behaviour of `SecretManagement.KeePass`, and the availability of a PowerShell 7 package for RHEL 10, are unverified.
+5. `SecretManagement.KeePass` is verified on Ubuntu with PowerShell 7.6 (key-file vaults, section 7) but not on a RHEL-family host, and the availability of a PowerShell 7 package for RHEL 10 is unverified.
+6. The Linux port is verified only by import and a smoke test on PowerShell 7.6 on Ubuntu. It has not been run on a RHEL-family host (the AlmaLinux 10 test VMs are the intended target), the macOS refusal has not been exercised, and the Windows branch has not been re-tested since the change.
+7. On Linux, the platform's own validation accepts a chain from a name-constrained CA with an IP address SAN (verified with the local test server on Ubuntu), so the .NET false positive that the validator works around does not occur there, and its rescue path (`IgnoreInvalidName`) has not been exercised on Linux. Its rejection logic (untrusted root, name mismatch) is verified. Private CAs must be in the system trust store on Linux (`update-ca-trust` on RHEL-family hosts). RHEL-family behaviour is unverified.
+8. The AriaOidc browser login on a headless Linux host needs the browser on the same host, or an SSH port forward of the loopback listener. Neither is tested. `xdg-open` launch on a graphical session is untested.
+9. `SysCommon` is a separate module and its own Linux compatibility is not covered here; ServiceAPI falls back to local error handling when it is absent.
+10. Linux has no equivalent of the domain-joined fallback for the Aria domain; `-SSODomain` must be registered. Reading an SSSD or realm join (`realm list`) was considered and left out as untested.
+11. The vault selection work is untested on Windows, on SecretStore and for the interactive prompts (section 7). The create-a-vault flow in particular runs `Set-SecretStoreConfiguration`, which on an existing store may prompt for the current password.
+12. No module version has been assigned to the vault selection work; the readme records it as Unreleased.
+13. The `AriaApiToken` call shapes are unverified against a real Aria tenant: which of `csp-authorize`, `oauth-tenant` and `iaas-login` the deployment accepts, which bearer its APIs accept, the API token's lifetime and how revocation appears, and whether the identity's rights match the browser-session token's. Section 8 is the plan.
 
 ## 5. Planned Scope
 
@@ -101,7 +123,7 @@
   expected to be needed on Windows Server 2025 or Windows 11.
 - Cross-platform (RHEL) support using OS branching at import time — previously planned,
   deferred pending the Phase 1 source.
-- Multiple vaults with a vault selector, and KeePass support. The design record is in section 7.
+- Credential export and import for sharing between users, and probe-and-self-heal on an index miss (section 7). Neither is designed in detail.
 - Remove the Windows PowerShell 5.1 limit on JSON responses of about 2 MB (`ConvertFrom-Json`),
   for example with a `JavaScriptSerializer` fallback in `Invoke-ServiceApiHttpRequest`.
 - SYSCommon is installed under PowerShell 7 only (the installed copy is 2.7.0). Its source was not plain ASCII, so it could not load on Windows PowerShell 5.1 and ServiceAPI fell back to its local handler there. SYSCommon 2.8.1 fixes this and is committed in the SYSCommon repository, verified by import and an export, import and compare round trip on both editions. Until it is pushed and installed under the Windows PowerShell module path, the fallback still applies on 5.1.
@@ -124,38 +146,40 @@
 - The C# validator in `Invoke-ServiceApiHttpRequest` must stay within C# 5 syntax, because
   Windows PowerShell 5.1 compiles it with the .NET Framework compiler.
 
-## 7. Vault Selection Design (planned, not implemented)
+## 7. Vault Selection (built, unreleased)
 
-No code for this section exists at v2.9.0. It records the design so that a fresh session does not re-derive it.
+Built after 3.0.0 from the design recorded in 1.2.0 of this file. Decisions D22 to D24 hold the reasoning; this section records what exists and what was learned.
 
-**Decided**
+**What exists**
 
-- Detect the vault. If none exists, prompt to create one through the default flow.
-- A saved default vault, so the user is not asked every time, and a `-Vault` parameter to override it at run time.
-- Reads use the vault recorded in the index for the label. `-Vault` also stores a credential in a different vault.
-- `SecretManagement.KeePass` is wired in as a vault type because it suits both Windows and Linux.
-- Several vaults separate capabilities. Documentation suggests generic names: `automation`, `local-systems`, `online-accounts`.
-- Credential export and import for sharing between users is a separate follow-up (documentation suggestion only).
-- A loader OS check sets script-scoped variables so the module runs a Windows or a Linux (RHEL) branch.
+- Public: `Get-ServiceVault`, `Set-ServiceVault`. `-Vault` on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`, declared last in each parameter block so no existing positional parameter moves, with tab completion from the registered vaults, forwarded to the nested Aria `ssoidentity` lookup, the QueryParam recursion, the credential prompt and the 403 credential refresh.
+- Private: `Resolve-ServiceVault`, `New-ServiceDefaultVault`, `Save-VaultIndex`, `Read-VaultConfig`, `Write-VaultConfig`, `Test-ServiceApiInteractive`. `Read-`, `Write-` and `Remove-VaultIndex`, `Test-IsTokenValue` and `Resolve-VaultCredential` changed for the label-to-vault schema.
+- Data: `credential-index.json` (label to vault) and `vault-config.json` (the saved default) in the machine-local data folder, owner-only on Linux.
 
-**Facts established**
+**Decided (unchanged from the design)**: detect the vault and offer to create one; a saved default; `-Vault` to override; reads use the recorded vault; KeePass is supported through the vault-agnostic design; generic suggested vault names (`automation`, `local-systems`, `online-accounts`); credential export and import is a separate follow-up.
 
-- SecretStore is one store per Windows user. Registering several SecretStore vaults under different names duplicates the same store, so separation needs another extension.
-- KeePass on Windows (PowerShell 7, `SecretManagement.KeePass` 0.9.3): a vault created with only a key file needs no prompt, a PSCredential round-trips, and a token string returns as a SecureString.
-- An unscoped `Get-Secret` with the same name in two vaults returns silently from one of them, so scoping every call with `-Vault` is a correctness requirement.
-- At v2.9.0 the module hardcodes `-Vault LocalStore` at five write and remove call sites (two in `Resolve-VaultCredential`, two in `Set-ServiceCredential`, one in `Clear-ServiceCredential`) and has two unscoped `Get-Secret` calls in `Resolve-VaultCredential`.
-- Vault registrations are per user and per machine, so the index must record vault names, never file paths.
+**Verified (PowerShell 7.6, Ubuntu, two `SecretManagement.KeePass` 0.9.3 key-file vaults)**: key-file vaults can be created with no prompt on Linux; a default write lands in the default vault only; `-Vault` writes to another vault and records it; a write with no `-Vault` keeps a label in its recorded vault; the same secret name in two vaults is read from the recorded vault, or from `-Vault` when given; a password containing a colon round-trips; a token string stored in KeePass is read back (it returns as a SecureString); `Clear-ServiceCredential` removes from the recorded vault and the index; the legacy index is migrated on load; with no vault, with one vault, with two vaults and no default, and with a recorded vault that is no longer registered, an unattended session never hangs.
 
-**Proposed (not confirmed as final)**
+**Not verified**: Windows PowerShell 5.1 and PowerShell 7 on Windows; a RHEL-family host; SecretStore (not installed in the test container), including the create-a-vault flow and `Set-SecretStoreConfiguration`; the interactive vault prompt; a locked vault in an unattended session (the design says fail fast; the module relies on SecretManagement's behaviour and has not tested it); the KeePass master-password and `-UseWindowsAccount` modes.
 
-- Index schema `service-key -> label -> vault`. The old array form is read as legacy and rewritten on the next write.
-- Resolver order: reads use `-Vault`, then the index-recorded vault, then the saved default. Writes use `-Vault`, the saved default, the single registered vault, then a prompt.
-- New public functions `Set-ServiceVault` and `Get-ServiceVault`, with the saved default held in `vault-config.json` in the machine-local data folder.
-- No vault: interactive runs offer to create a personal SecretStore vault named `LocalStore`. Non-interactive runs fall back to `-SessionOnly` with a warning.
-- A loader phase sets `$script:ServiceApiIsWindows` and `$script:ServiceApiIsLinux` (`$IsWindows` is absent in PowerShell 5.1, which is Windows-only), and one path helper builds the config and index paths.
-- Replace `PtrToStringAuto` on a BSTR (likely wrong on Linux) with `ConvertFrom-SecureString -AsPlainText` on PowerShell 7.
+**Deferred**: probe-and-self-heal on an index miss; credential export and import (certificate-based CMS encryption recommended; `Export-Clixml` is DPAPI-bound and a passphrase is weaker); the module version for this work.
 
-Implementation order: loader OS check and path helper, vault functions, `-Vault` and defaults, documentation, skill update.
+## 8. AriaApiToken: highside verification plan
+
+Run on the highside machine (Windows PowerShell 5.1 and PowerShell 7 if both are available). Everything printed below is status only; check the output before pasting it anywhere.
+
+1. Update the module from the branch and confirm it loads: `Import-Module ServiceAPI -Force; (Get-Module ServiceAPI).Version`.
+2. In the portal create an API token (My Account, API Tokens). Note its expiry. Do not paste it anywhere except the prompt in step 4.
+3. Register the service (omit `-SSOTenant` if unsure; it only enables the `oauth-tenant` shape):
+   `Register-CustomService -ServiceName aria -BaseUrl 'https://<aria-host>' -SSOProvider AriaApiToken -SSOTenant '<tenant>' -Persistent`
+4. Store the token: `Set-ServiceCredential -Service aria -AuthType Token -Label apitoken [-Vault <vault>]` and paste the token at the prompt.
+5. Probe: `& (Get-Module ServiceAPI) { Invoke-AriaApiTokenProbe -Service aria }`. Record which shapes report `200 OK`, which bearer is `accepted`, and the stated lifetime.
+6. Real call: `Invoke-APIRequest -Service aria -Endpoint 'iaas/api/projects?$top=1' -AuthType SSO -Verbose`. The verbose line names the exchange shape and bearer kind.
+7. New process, no prompts: `pwsh -NoProfile -NonInteractive -Command "Import-Module ServiceAPI; Invoke-APIRequest -Service aria -Endpoint 'iaas/api/about' -AuthType SSO"`.
+8. Refresh: `& (Get-Module ServiceAPI) { $global:ServiceSSOTokens['aria-prod'].ExpiresAt = [DateTime]::UtcNow.AddMinutes(-1) }` then repeat step 6; the verbose output should show a new exchange.
+9. Compare rights with the browser-session token (for example a call that needs a particular role) and note any difference.
+
+Report the probe output, the verbose line from step 6, and whether steps 7 and 8 passed. If no shape reports 200, the status of each shape says why (404 or 405: the shape does not exist on this deployment; 400 or 401: the token is expired, revoked or from another tenant).
 
 ---
 
@@ -163,6 +187,10 @@ Implementation order: loader OS check and path helper, vault functions, `-Vault`
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.11.0 | 09-OCT-26 | `AriaApiToken` provider recorded (D26, open item 13, section 8 verification plan). |
+| 1.10.0 | 08-OCT-26 | Test suites added under `tests/` (local server, vault selection, unattended). D25: certificate rejection reasons in the transport error. Open item 7 rewritten with the Linux finding. |
+| 1.9.0 | 08-OCT-26 | Vault selection recorded as built and unreleased (D22 to D24, section 7 rewritten, open items 11 and 12). Open item 5 updated for the Ubuntu KeePass result. |
+| 1.8.0 | 08-OCT-26 | Linux port recorded (D19 to D21, open items 6 to 10). Brought current to module v3.0.0. |
 | 1.7.0 | 07-OCT-26 | Added D18 (Australian/British English including file names). Corrected the machine description: the AWS WorkSpace is Windows Server 2025, not Windows 10, so the TLS 1.3 limitation applies to Windows 10 hosts only. Brought current to module v2.10.4. |
 | 1.6.0 | 07-OCT-26 | D17 revised: handled-error context uses Debug-Error -Message when SYSCommon 2.8.0 or later provides it. SYSCommon encoding gap recorded under planned scope. Brought current to module v2.10.3. |
 | 1.5.0 | 07-OCT-26 | Added D17 (handled-error context logged through Write-Log). Brought current to module v2.10.2. |

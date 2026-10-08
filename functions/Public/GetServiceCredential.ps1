@@ -35,11 +35,17 @@ function Get-ServiceCredential {
 
     .PARAMETER AuthType
         The authentication type to resolve. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
 
     .PARAMETER Label
         The vault label to retrieve. Defaults to 'default'.
         Applies to Basic and Token auth types.
+
+    .PARAMETER Vault
+        The registered SecretManagement vault to use. Overrides the vault recorded for the label and
+        the saved default (see Get-ServiceVault). An unregistered name is rejected. Ignored with
+        -SessionOnly and for SSO.
+
 
     .PARAMETER Environment
         The environment to target: qa, prod, dev. Defaults to prod.
@@ -80,10 +86,16 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.7.1
-        Date        : 06-OCT-26
+        Version     : 2.10.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.10.0 | 08OCT26 | AriaApiToken support: a stale AriaApiToken token is refreshed through Set-ServiceCredential, as
+                          AriaOidc is, and -Vault is passed to the SSO refresh so the API token is read from the chosen vault.
+        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves), passed to Resolve-VaultCredential, the QueryParam
+                          recursion, the nested Aria ssoidentity call and the credential prompt.
+        2.8.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
+                          Windows only; on Linux an unregistered SSODomain is reported with a clear message.
         2.7.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.7.0 | 01OCT26 | Added AriaOidc SSO provider support to the SSO refresh block. When
@@ -150,7 +162,21 @@ function Get-ServiceCredential {
 
         # Passed through to Resolve-VaultCredential for test call validation.
         [string]$Endpoint,
-        [string]$BaseUrl
+        [string]$BaseUrl,
+
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault
     )
 
     # Initialise standard headers
@@ -175,6 +201,7 @@ function Get-ServiceCredential {
         }
         if ($Endpoint) { $basicParams['Endpoint'] = $Endpoint }
         if ($BaseUrl)  { $basicParams['BaseUrl']  = $BaseUrl  }
+        if ($Vault)    { $basicParams['Vault']    = $Vault    }
 
         $basicHeaders = Get-ServiceCredential @basicParams
         $b64          = $basicHeaders['Authorization'] -replace '^Basic\s+', ''
@@ -218,11 +245,12 @@ function Get-ServiceCredential {
             # Refresh if within 5 minutes of expiry or already expired
             $ssoStale = [DateTime]::UtcNow -ge $entry.ExpiresAt.AddMinutes(-5)
 
-            if ($ssoStale -and $entry.Provider -eq 'AriaOidc') {
-                # AriaOidc owns its refresh cycle in Set-ServiceCredential; it reuses the cached
-                # refresh token and falls back to a browser login if the session has ended.
-                Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [AriaOidc]."
-                Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force
+            if ($ssoStale -and $entry.Provider -in @('AriaOidc', 'AriaApiToken')) {
+                # AriaOidc and AriaApiToken own their refresh cycle in Set-ServiceCredential. AriaOidc
+                # reuses the cached refresh token and falls back to a browser login; AriaApiToken
+                # exchanges the stored API token again, with no interaction.
+                Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [$($entry.Provider)]."
+                Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force -Vault $Vault
                 $entry = $global:ServiceSSOTokens[$key]
             } elseif ($ssoStale) {
                 Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [$($entry.Provider)]."
@@ -230,7 +258,7 @@ function Get-ServiceCredential {
                 if ($entry.Provider -eq 'Aria') {
                     # Mirrors the Aria resolution in Set-ServiceCredential's SSO branch:
                     # keep both in sync if either changes.
-                    $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
+                    $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment -Vault $Vault
                     $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
                     $ariaDecoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ariaB64))
                     $ariaColonIndex   = $ariaDecoded.IndexOf(':')
@@ -243,7 +271,7 @@ function Get-ServiceCredential {
                         $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
                         $global:ServiceRegistry[$Service][$Environment].SSODomain) {
                         $ariaDomain = $global:ServiceRegistry[$Service][$Environment].SSODomain
-                    } else {
+                    } elseif ($script:ServiceApiIsWindows) {
                         try {
                             $sysInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
                             if ($sysInfo.PartOfDomain -and $sysInfo.Domain) {
@@ -252,7 +280,7 @@ function Get-ServiceCredential {
                         } catch { }
                     }
                     if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
-                        throw "Could not resolve Aria domain for [$Service-$Environment] during SSO refresh. Register SSODomain via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
+                        throw "Could not resolve Aria domain for [$Service-$Environment] during SSO refresh. Register SSODomain via Register-CustomService -SSOProvider Aria -SSODomain <domain>. Domain auto-detection works on domain-joined Windows hosts only."
                     }
 
                     $ariaBaseUrl = $null
@@ -285,7 +313,7 @@ function Get-ServiceCredential {
 
         # No stored SSO token: delegate to Set-ServiceCredential
         Write-Verbose "No SSO token found for [$key]. Delegating to Set-ServiceCredential."
-        Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force
+        Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force -Vault $Vault
 
         if (-not $global:ServiceSSOTokens.ContainsKey($key)) {
             throw "SSO token was not stored for [$key] after acquisition. Aborting request."
@@ -320,6 +348,7 @@ function Get-ServiceCredential {
             }
             if ($Endpoint) { $vaultParams['Endpoint'] = $Endpoint }
             if ($BaseUrl)  { $vaultParams['BaseUrl']  = $BaseUrl  }
+            if ($Vault)    { $vaultParams['Vault']    = $Vault    }
 
             $resolved = Resolve-VaultCredential @vaultParams
 
@@ -354,7 +383,7 @@ function Get-ServiceCredential {
 
         # Token not found: prompt interactively
         Write-Verbose "No token found for [$key]. Prompting interactively."
-        Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Token -Label $Label
+        Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Token -Label $Label -Vault $Vault
 
         if (-not $global:ServiceTokens.ContainsKey($key)) {
             throw "Token was not stored for [$key] after prompt. Aborting request."
@@ -383,6 +412,7 @@ function Get-ServiceCredential {
         }
         if ($Endpoint) { $vaultParams['Endpoint'] = $Endpoint }
         if ($BaseUrl)  { $vaultParams['BaseUrl']  = $BaseUrl  }
+        if ($Vault)    { $vaultParams['Vault']    = $Vault    }
 
         $resolved = Resolve-VaultCredential @vaultParams
 
@@ -442,7 +472,7 @@ function Get-ServiceCredential {
     if (-not $cred) {
         Write-Verbose "No stored Basic Auth credential for [$Service-$Environment]. Prompting."
         try {
-            Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic -Label $Label
+            Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic -Label $Label -Vault $Vault
         } catch {
             throw "Interactive credential prompt failed: $_"
         }

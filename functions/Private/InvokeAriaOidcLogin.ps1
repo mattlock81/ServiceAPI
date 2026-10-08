@@ -74,10 +74,12 @@ function Invoke-AriaOidcLogin {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.1
-        Date        : 06-OCT-26
+        Version     : 1.4.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.4.0 | 08OCT26 | Linux support: opens the portal through Open-ServiceApiBrowser, with a message when
+                          no browser can be launched (headless Linux).
         1.3.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.3.0 | 06OCT26 | The bearer test now uses the shared Test-ServiceBearer, with the probe
@@ -187,7 +189,9 @@ function Invoke-AriaOidcLogin {
             -Port $ListenerPort -Key $courierKey -TimeoutSeconds $TimeoutSeconds -AfterStart {
                 Write-Host "Aria login: sign in to the portal that is opening. Waiting up to $TimeoutSeconds seconds..." -ForegroundColor Cyan
                 Write-Host "First time on this browser? Install the courier by opening $installUrl, then reload the portal tab." -ForegroundColor Cyan
-                Start-Process -FilePath $portalUrl
+                if (-not (Open-ServiceApiBrowser -Url $portalUrl)) {
+                    Write-Host "No browser could be opened on this host. Open $portalUrl in a browser on this same host (the courier posts to 127.0.0.1)." -ForegroundColor Yellow
+                }
             }.GetNewClosure()
 
         $tokens = ConvertTo-AriaTokenSet -Response $payload -FallbackRefreshToken $null `

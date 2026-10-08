@@ -25,28 +25,29 @@ function Invoke-AriaOidcProbe {
         The environment. Defaults to 'prod'.
 
     .EXAMPLE
-        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
+        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria }
 
-        Runs the diagnostic for the aihc service in the default (prod) environment. The module
+        Runs the diagnostic for the aria service in the default (prod) environment. The module
         scope is required because the function is private.
 
     .EXAMPLE
-        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc -Environment qa }
+        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria -Environment qa }
 
         Runs the diagnostic for the qa environment of the same service.
 
     .EXAMPLE
-        Invoke-APIRequest -Service aihc -Endpoint 'csp/gateway/am/api/loggedin/user' -AuthType SSO | Out-Null
-        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aihc }
+        Invoke-APIRequest -Service aria -Endpoint 'csp/gateway/am/api/loggedin/user' -AuthType SSO | Out-Null
+        & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria }
 
         Makes one SSO call first, which caches the token pair the probe needs, then probes.
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.3
-        Date        : 06-OCT-26
+        Version     : 1.0.4
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.0.4 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.0.3 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.2 | 06OCT26 | The endpoint status checks now use Invoke-ServiceApiHttpRequest

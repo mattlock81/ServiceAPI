@@ -26,12 +26,12 @@ function Get-ServiceProbeEndpoint {
         The environment. Defaults to 'prod'.
 
     .EXAMPLE
-        Get-ServiceProbeEndpoint -Service aihc
+        Get-ServiceProbeEndpoint -Service aria
 
         Returns 'iaas/api/projects?$top=1' for an AriaOidc service with no explicit value.
 
     .EXAMPLE
-        Get-ServiceProbeEndpoint -Service aihc -Environment qa
+        Get-ServiceProbeEndpoint -Service aria -Environment qa
 
         Returns the ProbeEndpoint registered for the qa environment, if one is set.
 
@@ -43,10 +43,12 @@ function Get-ServiceProbeEndpoint {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.1.0 | 08OCT26 | The AriaApiToken provider shares the AriaOidc default probe endpoint.
+        1.0.1 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.0.0 | 06OCT26 | Initial version. Single source of truth for the probe endpoint,
                           shared by the SSO 403 retry and the AriaOidc bearer selection.
     #>
@@ -71,7 +73,7 @@ function Get-ServiceProbeEndpoint {
         return ([string]$entry.ProbeEndpoint).TrimStart('/')
     }
 
-    if ($entry.SSOProvider -eq 'AriaOidc') {
+    if ($entry.SSOProvider -in @('AriaOidc', 'AriaApiToken')) {
         return 'iaas/api/projects?$top=1'
     }
 

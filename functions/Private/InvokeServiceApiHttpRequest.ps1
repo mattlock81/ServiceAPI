@@ -94,10 +94,13 @@ function Invoke-ServiceApiHttpRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.1.1
-        Date        : 06-OCT-26
+        Version     : 1.2.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.2.0 | 08OCT26 | The certificate validator records why a certificate was rejected (untrusted root with the
+                          chain status, or a host name missing from the certificate) and the request error now ends with
+                          "Certificate rejected: <reason>" instead of only "rejected by the RemoteCertificateValidationCallback".
         1.1.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.1.0 | 06OCT26 | Added a fast path when the platform reports no policy errors,
@@ -141,6 +144,7 @@ function Invoke-ServiceApiHttpRequest {
             # C# 5 syntax only: Windows PowerShell 5.1 compiles with the .NET Framework compiler.
             $validatorSource = @'
 using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
@@ -150,6 +154,38 @@ using System.Text;
 public static class ServiceApiCertValidator
 {
     public static readonly Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> Callback = Validate;
+
+    // Why the last certificate for a host was rejected. The handshake callback cannot throw a
+    // useful message, so the caller reads the reason here when the request fails.
+    private static readonly ConcurrentDictionary<string, string> Reasons = new ConcurrentDictionary<string, string>();
+
+    public static string TakeReason(string host)
+    {
+        string reason;
+        if (host != null && Reasons.TryRemove(host.ToLowerInvariant(), out reason)) return reason;
+        return null;
+    }
+
+    private static bool Reject(string host, string reason)
+    {
+        if (host != null) Reasons[host.ToLowerInvariant()] = reason;
+        return false;
+    }
+
+    private static string DescribeChain(X509Chain c)
+    {
+        StringBuilder sb = new StringBuilder();
+        foreach (X509ChainStatus s in c.ChainStatus)
+        {
+            string name = s.Status.ToString();
+            if (sb.ToString().IndexOf(name, StringComparison.Ordinal) < 0)
+            {
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append(name);
+            }
+        }
+        return sb.Length > 0 ? sb.ToString() : "unknown chain error";
+    }
 
     private static bool ReadLength(byte[] d, ref int pos, out int length)
     {
@@ -222,8 +258,9 @@ public static class ServiceApiCertValidator
     public static bool Validate(HttpRequestMessage msg, X509Certificate2 cert, X509Chain chain, SslPolicyErrors errors)
     {
         if (errors == SslPolicyErrors.None) return true;              // platform validation already succeeded
-        if (cert == null || msg == null || msg.RequestUri == null) return false;
-        if ((errors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0) return false;
+        string host = (msg != null && msg.RequestUri != null) ? msg.RequestUri.DnsSafeHost : null;
+        if (cert == null || host == null) return Reject(host, "the server presented no usable certificate.");
+        if ((errors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0) return Reject(host, "the server presented no certificate.");
 
         using (X509Chain c = new X509Chain())
         {
@@ -241,10 +278,17 @@ public static class ServiceApiCertValidator
                 }
             }
 
-            if (!c.Build(cert)) return false;                          // a trusted root is still required
+            if (!c.Build(cert))                                        // a trusted root is still required
+            {
+                return Reject(host, "the certificate chain does not end in a trusted root (" + DescribeChain(c) + "). Install the issuing CA or its root in the system trust store.");
+            }
         }
 
-        return SanMatchesHost(cert, msg.RequestUri.DnsSafeHost);
+        if (!SanMatchesHost(cert, host))
+        {
+            return Reject(host, "the host name [" + host + "] is not in the certificate's DNS or IP-address names (platform reported: " + errors + ").");
+        }
+        return true;
     }
 }
 '@
@@ -334,6 +378,10 @@ public static class ServiceApiCertValidator
             if ($inner.Message -and $detail -notcontains $inner.Message) { $detail += $inner.Message }
             $inner = $inner.InnerException
         }
+
+        # The TLS callback can only say "rejected"; the validator records why.
+        $tlsReason = [ServiceApiCertValidator]::TakeReason(([uri]$Uri).DnsSafeHost)
+        if ($tlsReason) { $detail += "Certificate rejected: $tlsReason" }
 
         if ($cts.IsCancellationRequested) {
             $message = "The request to [$loggableUri] timed out after $TimeoutSec seconds."

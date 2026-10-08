@@ -1,6 +1,6 @@
 # ServiceAPI
 
-**Version**: 2.10.4  
+**Version**: 3.0.0  
 **Author**: Matthew Sillett  
 **Organisation**:
 
@@ -10,11 +10,13 @@
 
 ServiceAPI is a PowerShell module that provides a unified REST API framework for interacting with multiple services. It supports Basic Auth, static Token, SSO OAuth, QueryParam (credential delivered via URL query string rather than a header), and None (unauthenticated) authentication modes via a persistent service registry pattern, with optional credential persistence through Microsoft SecretManagement vault integration.
 
-SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), and `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener).
+SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener), and `AriaApiToken` (Aria / VCF Automation via a self-service API token exchanged without a browser, for unattended use).
 
 Services are registered once with a BaseUrl and stored in a user-scoped `services.json` file. Credentials are resolved automatically from the vault, from in-memory global state, or via interactive prompt — in that order. All public functions share a unified `-AuthType` parameter with tab completion, and the `-Service` parameter tab-completes from the live registry.
 
 ServiceAPI degrades gracefully when optional dependencies (`SysCommon`, `Microsoft.PowerShell.SecretManagement`) are absent.
+
+**Platform support (since v3.0.0):** Windows (Windows PowerShell 5.1 and PowerShell 7) and Linux (PowerShell 7). RHEL-family Linux (RHEL, AlmaLinux, Rocky, Fedora, CentOS, Oracle Linux) is the target; other Linux distributions load with a warning, and macOS is refused. The module detects the platform on load. On Linux, user data follows the XDG base directories and is restricted to the owner. Linux support is new and has not yet been tested on a RHEL-family host; see [docs/Rehydration.md](docs/Rehydration.md) for what is and is not verified.
 
 Current state, design decisions, open items and planned scope are tracked in [docs/Rehydration.md](docs/Rehydration.md). Start there when picking up the project; this readme is the identity record.
 
@@ -25,6 +27,8 @@ Current state, design decisions, open items and planned scope are tracked in [do
 ```powershell
 Import-Module ServiceAPI
 ```
+
+**Linux:** install PowerShell 7, then place the module under a path in `$env:PSModulePath` (for example `~/.local/share/powershell/Modules/ServiceAPI`) and import it. Optional: install `Microsoft.PowerShell.SecretManagement` and a vault extension from the PowerShell Gallery for vault storage. An internal service whose certificate chains to a private CA needs that CA in the system trust store (on RHEL-family hosts, copy it to `/etc/pki/ca-trust/source/anchors/` and run `update-ca-trust`). Two behaviours differ from Windows: the Aria domain is never auto-detected from the host (register `-SSODomain`), and the `AriaOidc` browser login needs a browser on the same host as the module, because the courier posts to `127.0.0.1`. On a headless host, forward the listener port from a workstation (`ssh -L <port>:127.0.0.1:<port> <host>`) and open the portal there.
 
 ---
 
@@ -63,6 +67,8 @@ Invoke-APIRequest -Service myapi -Endpoint 'resources' -AuthType Token
 | `Get-ServiceCredential` | Resolve authentication headers for a service (called internally) |
 | `Get-ServiceConfig` | Resolve BaseUrl and merged headers for a service (called internally) |
 | `Clear-ServiceCredential` | Remove stored credentials from global state and, for targeted Basic/Token clears, automatically from the vault |
+| `Get-ServiceVault` | List the registered SecretManagement vaults, the saved ServiceAPI default and how many credentials each holds |
+| `Set-ServiceVault` | Save (or clear) the default vault that ServiceAPI uses for new credentials |
 
 
 ---
@@ -115,8 +121,8 @@ Supported providers: `GCloud`, `AzureCLI`, `Aria`, `AriaOidc`. SSO tokens are ca
 Unlike `GCloud`/`AzureCLI`, Aria is REST-native rather than CLI-based. It sources its underlying domain-account credential via `Get-ServiceCredential -AuthType Basic` under the service's own name with label `'ssoidentity'` (so that credential is itself vault-backed — the first SSO call for Aria can bootstrap it interactively if it isn't already stored), then performs a two-step exchange: a CSP refresh-token request, followed by an IaaS bearer-token request.
 
 ```powershell
-# Register with Aria — SSODomain is optional on domain-joined systems (falls back to the
-# joined domain automatically); set it explicitly on non-domain-joined machines
+# Register with Aria — SSODomain is optional on domain-joined Windows systems (falls back to the
+# joined domain automatically); set it explicitly on non-domain-joined machines and on Linux
 Register-CustomService -ServiceName aria -BaseUrl 'https://aria.example.com' -SSOProvider Aria -SSODomain 'CorpDomain' -Persistent
 
 # Bootstraps the 'ssoidentity' Basic credential interactively on first use, then
@@ -150,6 +156,30 @@ To see which call shapes and which bearer a tenant accepts (statuses only — no
 & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria-example }
 ```
 
+#### AriaApiToken (Aria / VCF Automation via a self-service API token, no browser)
+
+For unattended use. An Aria API token (created in the portal under My Account, API Tokens) is stored in a vault and exchanged for a short-lived bearer whenever one is needed, so a new process, a scheduled task or a headless Linux host needs no browser, no userscript and no person. The API token is read from the vault on each exchange and is never cached in memory beyond the call.
+
+```powershell
+# SSOTenant is optional; it enables the oauth-tenant exchange shape.
+Register-CustomService -ServiceName aria-example -BaseUrl 'https://aria.example.com' -SSOProvider AriaApiToken -SSOTenant 'my-tenant' -Persistent
+
+# Store the API token once, under the label 'apitoken' (paste the token alone at the prompt).
+Set-ServiceCredential -Service aria-example -AuthType Token -Label apitoken -Vault automation
+
+Invoke-APIRequest -Service aria-example -Endpoint 'iaas/api/projects' -AuthType SSO
+```
+
+The exchange adapts to the deployment. `Invoke-AriaApiTokenExchange` tries `csp-authorize` (`/csp/gateway/am/api/auth/api-tokens/authorize`), `oauth-tenant` (`/oauth/tenant/<tenant>/token`, when a tenant is registered) and `iaas-login` (`/iaas/api/login`), caches the shape that worked and tries it first next time. The bearer is chosen by test, as for `AriaOidc`: it is sent to the probe endpoint, and if it is not accepted the `iaas/api/login` token is tried. A refused API token produces an error that lists the status of each shape and never includes the token.
+
+To see which shapes and which bearer a tenant accepts (statuses only, no tokens printed):
+
+```powershell
+& (Get-Module ServiceAPI) { Invoke-AriaApiTokenProbe -Service aria-example }
+```
+
+The API token acts as the identity that created it, so protect it like a password and prefer a vault such as `automation`. These call shapes come from the Aria design notes and are proven against a local emulation only; they have not yet been verified against a real tenant.
+
 ### Certificate-Aware Transport
 
 Every request the module makes is sent by the private `Invoke-ServiceApiHttpRequest`, which replaces `Invoke-RestMethod`. `Invoke-RestMethod` cannot accept a per-request certificate validation callback, so it cannot reach hosts whose certificate chain trips the .NET name-constraints false positive: a leaf certificate that carries IP-address names, issued by a CA whose permitted subtrees are DNS-only. An internal Aria CA produces this shape.
@@ -173,7 +203,7 @@ When a guard cannot decide, the request falls back to refresh-and-retry. The pro
 
 ```powershell
 # Register a service with an explicit probe endpoint (optional for AriaOidc, which has a default)
-Register-CustomService -ServiceName aihc -BaseUrl 'https://<aria-host>' `
+Register-CustomService -ServiceName aria -BaseUrl 'https://<aria-host>' `
     -SSOProvider AriaOidc -SSOTenant '<tenant>' `
     -ProbeEndpoint 'iaas/api/projects?$top=1' -Persistent
 ```
@@ -332,18 +362,56 @@ Clear-ServiceCredential -Service myapi -Environment prod -AuthType Token -Force
 
 # Verify vault contents
 Get-SecretInfo | Format-Table Name, Type, VaultName
-Get-Content "$env:LOCALAPPDATA\ServiceAPI\credential-index.json"
+Get-Content "$env:LOCALAPPDATA\ServiceAPI\credential-index.json"          # Windows
+Get-Content "$HOME/.local/share/ServiceAPI/credential-index.json"            # Linux (or $XDG_DATA_HOME/ServiceAPI)
 ```
 
-Vault labels are tracked in a machine-local `credential-index.json` at `$env:LOCALAPPDATA\ServiceAPI\`. This index is never committed to source control. `Clear-ServiceCredential` keeps it in sync via the new `Remove-VaultIndex` private function (mirrors `Write-VaultIndex`).
+Vault labels are tracked in a machine-local `credential-index.json` at `$env:LOCALAPPDATA\ServiceAPI\` on Windows and in the XDG data directory (`~/.local/share/ServiceAPI/`) on Linux. This index is never committed to source control. `Clear-ServiceCredential` keeps it in sync via the new `Remove-VaultIndex` private function (mirrors `Write-VaultIndex`).
+
+### Choosing a vault
+
+ServiceAPI works with any registered SecretManagement vault. A credential is stored in, and read from, a vault chosen as follows.
+
+| | Order |
+|---|---|
+| **Reading** | `-Vault`, then the vault recorded for that label in `credential-index.json`, then the saved default, then the only registered vault. If none can be chosen the module warns rather than guess, because an unscoped lookup could return a secret of the same name from the wrong vault. |
+| **Writing** | `-Vault`, then the vault already recorded for that label (so updating a credential does not move it), then the saved default, then the only registered vault, then a prompt when several are registered (with an offer to save the choice as the default). |
+| **No vault registered** | Interactive: an offer to create a personal SecretStore vault named `LocalStore` (the only place the module assumes SecretStore). Unattended: a warning, and the credential stays in the session store. |
+
+```powershell
+Get-ServiceVault                                   # registered vaults, the saved default, credentials per vault
+Set-ServiceVault -Name 'automation'                # save the default for new credentials
+Set-ServiceVault -Clear                            # remove the saved default
+
+Set-ServiceCredential -Service myapi -Environment prod -AuthType Token -Vault 'online-accounts'
+Invoke-APIRequest -Service myapi -Endpoint 'status' -AuthType Token -Vault 'online-accounts'
+Clear-ServiceCredential -Service myapi -Environment prod -AuthType Token -Vault 'online-accounts' -Force
+```
+
+`-Vault` is available on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`. It tab-completes from the registered vaults, and an unregistered name is rejected. It is also forwarded to the nested `ssoidentity` lookup of the `Aria` SSO provider. Unattended sessions (`-NonInteractive`) never prompt: they warn and continue with the session credential. A locked vault is handled by SecretManagement: it prompts in an interactive session; the behaviour of a locked vault in an unattended session has not been tested.
+
+`credential-index.json` records the vault name per label, never a path, because vault registrations are per user and per machine:
+
+```json
+{ "jira-prod": { "default": "LocalStore", "matt": "automation" } }
+```
+
+An index from an earlier version (a plain array of labels per key) is read as legacy and rewritten on load: its labels are assigned to the saved default vault, or to the only registered vault. If neither applies the vault name is left empty and is decided when the label is next read. The saved default is held in `vault-config.json` beside the index.
 
 ### SecretStore limitation and multiple vaults
 
-`Microsoft.PowerShell.SecretStore` is one store per Windows user. Its documentation states that scope `AllUsers` is not supported, and registering several SecretStore vaults under different names does not create separate stores: every registration shares the same secrets and the same lock configuration. A locked vault for sensitive credentials and an unlocked vault for automation therefore cannot both be SecretStore. Vault registrations are also per user and per machine.
+`Microsoft.PowerShell.SecretStore` is one store per user. Its documentation states that scope `AllUsers` is not supported, and registering several SecretStore vaults under different names does not create separate stores: every registration shares the same secrets and the same lock configuration. A locked vault for sensitive credentials and an unlocked vault for automation therefore cannot both be SecretStore. Vault registrations are also per user and per machine.
 
-ServiceAPI v2.9.0 reads and writes only a vault registered with the name `LocalStore`.
+Separate vaults need another SecretManagement extension. `SecretManagement.KeePass` works on Windows, and in testing on Ubuntu with PowerShell 7.6 (it has not yet been tried on a RHEL-family host). A vault can be created with a key file only, so it needs no prompt:
 
-**Planned (not available in v2.9.0):** support for more than one vault, using another SecretManagement extension (`SecretManagement.KeePass` has been tested on Windows) alongside or instead of SecretStore. The intended design is a saved default vault, a `-Vault` parameter to override it, and the vault name recorded per label in `credential-index.json`. A suggested separation uses generic vault names by capability:
+```powershell
+Register-KeePassSecretVault -Name 'automation' -Path "$HOME/vaults/automation.kdbx" -KeyPath "$HOME/vaults/automation.key" -UseMasterPassword:$false -Create
+Set-ServiceVault -Name 'automation'
+```
+
+The `.kdbx` and key files are portable between Windows and Linux; the registrations are not, so register each vault on each machine under the same name. The module is a prerelease and may need approval on managed machines. A key file protects only as well as the file permissions do; keep it out of source control.
+
+A suggested separation uses generic vault names by capability:
 
 | Vault name | Suggested contents |
 |---|---|
@@ -351,8 +419,7 @@ ServiceAPI v2.9.0 reads and writes only a vault registered with the name `LocalS
 | `local-systems` | Credentials for systems on the local network |
 | `online-accounts` | Credentials for internet-facing accounts and APIs |
 
-Sharing credentials between users (export and import) is a separate follow-up and is not part of this design.
-
+Sharing credentials between users (export and import) is a separate follow-up and is not part of this release. A certificate-based method such as CMS encryption is recommended over `Export-Clixml` (bound to the Windows DPAPI) or a passphrase.
 
 ---
 
@@ -364,15 +431,20 @@ ServiceAPI/
 ├── ServiceAPI.psd1
 ├── docs/
 │   └── Rehydration.md
+├── tests/                       Linux test suites (see tests/README.md)
 └── functions/
     ├── Private/
     │   ├── ConvertFromJwtPayload.ps1
     │   ├── ConvertSecureStringToPlainText.ps1
     │   ├── ConvertVaultSecretToCredential.ps1
+    │   ├── GetAriaApiToken.ps1
     │   ├── GetAriaCourierScript.ps1
     │   ├── GetServiceProbeEndpoint.ps1
     │   ├── InitialiseServiceConfig.ps1
     │   ├── InitialiseVaultIndex.ps1
+    │   ├── InvokeAriaApiTokenExchange.ps1
+    │   ├── InvokeAriaApiTokenLogin.ps1
+    │   ├── InvokeAriaApiTokenProbe.ps1
     │   ├── InvokeAriaOidcLogin.ps1
     │   ├── InvokeAriaOidcProbe.ps1
     │   ├── InvokeAriaOidcRefresh.ps1
@@ -381,32 +453,43 @@ ServiceAPI/
     │   ├── InvokeServiceSsoRetry.ps1
     │   ├── InvokeSSOProviderToken.ps1
     │   ├── NewServiceKey.ps1
+    │   ├── NewServiceDefaultVault.ps1
     │   ├── NewStandardHeaders.ps1
+    │   ├── OpenServiceApiBrowser.ps1
     │   ├── ReadServiceConfig.ps1
+    │   ├── ReadVaultConfig.ps1
     │   ├── ReadVaultIndex.ps1
     │   ├── RemoveVaultIndex.ps1
+    │   ├── ResolveServiceVault.ps1
     │   ├── ResolveVaultCredential.ps1
+    │   ├── SaveVaultIndex.ps1
+    │   ├── SetServiceApiSecureMode.ps1
     │   ├── TestIsTokenValue.ps1
+    │   ├── TestServiceApiInteractive.ps1
     │   ├── TestServiceBearer.ps1
     │   ├── WaitAriaCourierToken.ps1
     │   ├── WriteServiceApiHandledError.ps1
     │   ├── WriteServiceConfig.ps1
+    │   ├── WriteVaultConfig.ps1
     │   └── WriteVaultIndex.ps1
     └── Public/
         ├── ClearServiceCredential.ps1
         ├── GetServiceConfig.ps1
         ├── GetServiceCredential.ps1
+        ├── GetServiceVault.ps1
         ├── InvokeAPIRequest.ps1
         ├── RegisterCustomService.ps1
-        └── SetServiceCredential.ps1
+        ├── SetServiceCredential.ps1
+        └── SetServiceVault.ps1
 ```
 
 User data files are stored outside the module directory and are never committed to source control:
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
-| `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` | Machine-local vault label index — tracks which named credentials exist per service key |
+| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
+| `vault-config.json` | Same folder as `credential-index.json` | The saved default vault name (created by `Set-ServiceVault`) |
+| `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` (Windows), `~/.local/share/ServiceAPI/` (Linux, or `$XDG_DATA_HOME`) | Machine-local vault label index — tracks which named credentials exist per service key |
 
 ---
 
@@ -414,6 +497,8 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| Unreleased | 09Oct26 | AriaApiToken SSO provider (Register-CustomService 2.7.0, Set-ServiceCredential 2.11.0, Get-ServiceCredential 2.10.0, Invoke-SSOProviderToken 1.4.0, Get-ServiceProbeEndpoint 1.1.0; new private Invoke-AriaApiTokenExchange, Invoke-AriaApiTokenLogin, Invoke-AriaApiTokenProbe and Get-AriaApiToken 1.0.0). Tested against a local Aria emulation only; not yet verified against a tenant. Earlier unreleased work, 08Oct26: Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
+| 3.0.0 | 08Oct26 | Linux support. Phase 0.6 platform detection (Windows or Linux; RHEL-family is the target, other Linux warns, macOS refused). XDG data locations and owner-only permissions on Linux (new private Set-ServiceApiSecureMode 1.0.0, used by Initialise-ServiceConfig 1.3.0, Initialise-VaultIndex 1.2.0, Write-ServiceConfig 1.5.0, Write-VaultIndex 1.2.0, Remove-VaultIndex 1.1.0). SecureString conversion no longer uses PtrToStringAuto (Convert-VaultSecretToCredential 1.1.0, Resolve-VaultCredential 1.3.0). New private Open-ServiceApiBrowser 1.0.0 used by Invoke-AriaOidcLogin 1.4.0. The Aria domain-joined fallback runs on Windows only (Get-ServiceCredential 2.8.0, Set-ServiceCredential 2.9.0). Windows behaviour unchanged; untested on RHEL-family Linux and not re-tested on Windows. |
 | 2.10.4 | 07Oct26 | Australian/British spelling consistency, no code change. The private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` are renamed `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` to match their function names (`Initialise-ServiceConfig`, `Initialise-VaultIndex`), and the manifest text now reads Data Centre and licence. |
 | 2.10.3 | 07Oct26 | Write-ServiceApiHandledError (1.1.0) passes the context to Debug-Error -Message when the installed SYSCommon provides it (2.8.0 and later), so the context and the error share one log entry. Older SYSCommon keeps the previous behaviour of logging the context separately through Write-Log. |
 | 2.10.2 | 07Oct26 | Fixed Write-ServiceApiHandledError (1.0.1) dropping its -Message when SYSCommon Debug-Error is available. Debug-Error has no parameter for caller context, so the message is now logged as its own entry through Write-Log, at the same severity and quiet for an HTTP 404, before the error is reported. The local fallback is unchanged. |

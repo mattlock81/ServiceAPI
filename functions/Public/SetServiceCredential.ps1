@@ -53,13 +53,21 @@ function Set-ServiceCredential {
         refresh token is held in memory alongside the bearer token and never stored in the
         vault. This path is interactive and not suitable for unattended automation.
 
+        The AriaApiToken provider is the unattended Aria path. It reads an Aria API token (created
+        in the portal under My Account, API Tokens) stored with this function as a Token
+        credential under the label 'apitoken' (paste the token alone at the Token prompt), exchanges it for a bearer
+        (Invoke-AriaApiTokenLogin), and exchanges it again whenever the bearer nears expiry. No
+        browser is involved, and the API token is read from the vault on each exchange, so a new
+        process needs no interaction. Register the service with -SSOProvider AriaApiToken
+        (and optionally -SSOTenant).
+
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
         Required for Token and SSO storage. Optional for Basic Auth global storage.
 
     .PARAMETER AuthType
         The authentication type to store. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
 
     .PARAMETER Credential
         A PSCredential object for Basic Auth storage. If omitted, prompts interactively.
@@ -68,6 +76,13 @@ function Set-ServiceCredential {
     .PARAMETER Label
         The vault label to store the credential under. Defaults to 'default'.
         Applies to Basic and Token auth types.
+
+    .PARAMETER Vault
+        The registered SecretManagement vault to store the credential in. Overrides the vault already
+        recorded for the label, the saved default and the only registered vault (see Get-ServiceVault).
+        An unregistered name is rejected with a warning and the credential stays in the session store.
+        Applies to Basic and Token; SSO is never vault-stored.
+
 
     .PARAMETER Environment
         The environment: qa, prod, dev, or global (Basic Auth only). Defaults to prod.
@@ -100,10 +115,18 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.8.2
-        Date        : 06-OCT-26
+        Version     : 2.11.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.11.0 | 08OCT26 | AriaApiToken support: new SSO provider branch. The API token is read with Get-AriaApiToken
+                          (label apitoken, from the chosen vault), exchanged by Invoke-AriaApiTokenLogin with the bearer chosen by
+                          test, and cached with its expiry and the exchange shape that worked.
+        2.10.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves). The vault write uses Resolve-ServiceVault (-Vault, the vault
+                          already recorded for the label, the saved default, the only registered vault, then a prompt) and
+                          records the vault in the index. The hardcoded LocalStore is gone.
+        2.9.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
+                          Windows only; on Linux an unregistered SSODomain is reported with a clear message.
         2.8.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.8.1 | 06OCT26 | The AriaOidc branch now passes the service's registered
@@ -174,7 +197,21 @@ function Set-ServiceCredential {
 
         [string]$Environment = 'prod',
         [switch]$Global,
-        [switch]$Force
+        [switch]$Force,
+
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault
     )
 
     # =========================================================================
@@ -219,9 +256,14 @@ function Set-ServiceCredential {
         if ($script:ServiceApiHasSecretManagement) {
             $vaultName = "$Service-$Label-$Environment"
             try {
-                Set-Secret -Name $vaultName -Secret $tokenValue -Vault LocalStore -ErrorAction Stop
-                Write-VaultIndex -ServiceKey $key -Label $Label
-                Write-Verbose "Stored token for [$key] under label [$Label] in vault as [$vaultName]."
+                $targetVault = Resolve-ServiceVault -Vault $Vault -ServiceKey $key -Label $Label -ForWrite
+                if ($targetVault) {
+                    Set-Secret -Name $vaultName -Secret $tokenValue -Vault $targetVault -ErrorAction Stop
+                    Write-VaultIndex -ServiceKey $key -Label $Label -Vault $targetVault
+                    Write-Verbose "Stored token for [$key] under label [$Label] in vault [$targetVault] as [$vaultName]."
+                } else {
+                    Write-Warning "No vault available. Token retained in session store only."
+                }
             } catch {
                 Write-Warning "Failed to store token in vault: $_. Token retained in session store only."
             }
@@ -258,7 +300,7 @@ function Set-ServiceCredential {
                 throw "SSO provider is required. Register one via Register-CustomService -SSOProvider."
             }
 
-            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc" -ForegroundColor Cyan
+            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken" -ForegroundColor Cyan
             $provider = Read-Host "Enter provider name"
 
             if ([string]::IsNullOrWhiteSpace($provider)) {
@@ -281,7 +323,7 @@ function Set-ServiceCredential {
             # Resolve the underlying domain-account credential via the existing Basic
             # vault/fallback/prompt chain; reuses Get-ServiceCredential exactly as
             # QueryParam mode does, rather than duplicating vault lookup logic here.
-            $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
+            $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment -Vault $Vault
             $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
             $ariaDecoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ariaB64))
             $ariaColonIndex   = $ariaDecoded.IndexOf(':')
@@ -295,7 +337,7 @@ function Set-ServiceCredential {
                 $global:ServiceRegistry[$Service].ContainsKey($Environment) -and
                 $global:ServiceRegistry[$Service][$Environment].SSODomain) {
                 $ariaDomain = $global:ServiceRegistry[$Service][$Environment].SSODomain
-            } else {
+            } elseif ($script:ServiceApiIsWindows) {
                 try {
                     $sysInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
                     if ($sysInfo.PartOfDomain -and $sysInfo.Domain) {
@@ -307,7 +349,7 @@ function Set-ServiceCredential {
                 }
             }
             if ([string]::IsNullOrWhiteSpace($ariaDomain)) {
-                throw "Could not resolve Aria domain for [$Service-$Environment]. System is not domain-joined and no SSODomain is registered. Register one via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
+                throw "Could not resolve Aria domain for [$Service-$Environment]. No SSODomain is registered and this host is not a domain-joined Windows system (domain auto-detection is Windows-only). Register one via Register-CustomService -SSOProvider Aria -SSODomain <domain>."
             }
 
             # Resolve BaseUrl from the registry, the same source Get-ServiceConfig would use
@@ -370,6 +412,51 @@ function Set-ServiceCredential {
             }
 
             Write-Verbose "Stored SSO token for [$oidcKey] via provider [AriaOidc]. Expires at [$($global:ServiceSSOTokens[$oidcKey].ExpiresAt)] UTC."
+            return
+
+        } elseif ($provider -eq 'AriaApiToken') {
+
+            # Resolve BaseUrl and the optional tenant from the registry
+            $apiEntry = $null
+            if ($global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
+                $apiEntry = $global:ServiceRegistry[$Service][$Environment]
+            }
+            if (-not $apiEntry -or [string]::IsNullOrWhiteSpace($apiEntry.BaseUrl)) {
+                throw "Could not resolve BaseUrl for [$Service-$Environment]. Register the service first."
+            }
+
+            # The API token lives in the vault under the label 'apitoken' (mirrors the Aria
+            # provider's 'ssoidentity' lookup). It is read on every exchange and not cached.
+            $apiToken = Get-AriaApiToken -Service $Service -Environment $Environment -Vault $Vault
+
+            $apiKey    = New-ServiceKey -Service $Service -Environment $Environment
+            $apiCached = $null
+            if ($global:ServiceSSOTokens.ContainsKey($apiKey)) {
+                $apiCached = $global:ServiceSSOTokens[$apiKey]
+            }
+
+            $apiLoginParams = @{
+                BaseUrl  = $apiEntry.BaseUrl
+                ApiToken = $apiToken
+            }
+            if ($apiEntry.SSOTenant) { $apiLoginParams['Tenant'] = $apiEntry.SSOTenant }
+            if ($apiCached -and $apiCached.ExchangeMode) { $apiLoginParams['ExchangeMode'] = $apiCached.ExchangeMode }
+
+            $apiProbe = Get-ServiceProbeEndpoint -Service $Service -Environment $Environment
+            if ($apiProbe) { $apiLoginParams['ProbeEndpoint'] = $apiProbe }
+
+            $apiLogin = Invoke-AriaApiTokenLogin @apiLoginParams
+
+            $global:ServiceSSOTokens[$apiKey] = @{
+                Token        = $apiLogin.Bearer
+                ExpiresAt    = [DateTime]::UtcNow.AddSeconds($apiLogin.ExpiresIn)
+                Provider     = $provider
+                BearerMode   = $apiLogin.BearerMode
+                ExchangeMode = $apiLogin.ExchangeMode
+            }
+
+            Write-Verbose "Stored SSO token for [$apiKey] via provider [AriaApiToken] ($($apiLogin.ExchangeMode), $($apiLogin.BearerMode) bearer). Expires at [$($global:ServiceSSOTokens[$apiKey].ExpiresAt)] UTC."
             return
 
         } else {
@@ -458,9 +545,14 @@ function Set-ServiceCredential {
         if ($script:ServiceApiHasSecretManagement) {
             $vaultName = "$Service-$Label-$Environment"
             try {
-                Set-Secret -Name $vaultName -Secret $Credential -Vault LocalStore -ErrorAction Stop
-                Write-VaultIndex -ServiceKey $key -Label $Label
-                Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label] in vault as [$vaultName]."
+                $targetVault = Resolve-ServiceVault -Vault $Vault -ServiceKey $key -Label $Label -ForWrite
+                if ($targetVault) {
+                    Set-Secret -Name $vaultName -Secret $Credential -Vault $targetVault -ErrorAction Stop
+                    Write-VaultIndex -ServiceKey $key -Label $Label -Vault $targetVault
+                    Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label] in vault [$targetVault] as [$vaultName]."
+                } else {
+                    Write-Warning "No vault available. Credential retained in session store only."
+                }
             } catch {
                 Write-Warning "Failed to store Basic Auth credential in vault: $_. Credential retained in session store only."
             }

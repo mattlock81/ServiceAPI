@@ -3,9 +3,9 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 2.10.4
+# Version: 3.0.0
 # Author: Matthew Sillett
-# Date: 2026-10-07
+# Date: 2026-10-08
 
 # ==============================
 # Phase 0: Dependency Import
@@ -50,18 +50,68 @@ if (Get-Module -Name Microsoft.PowerShell.SecretManagement -ListAvailable) {
 }
 
 # ==============================
+# Phase 0.6: Detect Platform
+# ==============================
+# $IsWindows, $IsLinux and $IsMacOS do not exist in Windows PowerShell 5.1, which runs on
+# Windows only, so an absent $IsWindows means Windows. Supported platforms are Windows and
+# Linux. RHEL-family Linux (RHEL, AlmaLinux, Rocky, Fedora, CentOS, Oracle Linux) is the
+# tested target; other Linux distributions load with a warning. Anything else is refused.
+$script:ServiceApiIsWindows = if (Test-Path -Path Variable:\IsWindows) { [bool]$IsWindows } else { $true }
+$script:ServiceApiIsLinux   = (-not $script:ServiceApiIsWindows) -and
+                              (Test-Path -Path Variable:\IsLinux) -and [bool]$IsLinux
+$script:ServiceApiOsId      = ''
+$script:ServiceApiOsIdLike  = ''
+$script:ServiceApiIsRhelFamily = $false
+
+if ($script:ServiceApiIsWindows) {
+    $script:ServiceApiPlatform = 'Windows'
+} elseif ($script:ServiceApiIsLinux) {
+    $script:ServiceApiPlatform = 'Linux'
+    $serviceApiOsRelease = '/etc/os-release'
+    if (Test-Path -LiteralPath $serviceApiOsRelease -PathType Leaf) {
+        foreach ($serviceApiLine in (Get-Content -LiteralPath $serviceApiOsRelease -ErrorAction SilentlyContinue)) {
+            if ($serviceApiLine -match '^\s*(ID|ID_LIKE)\s*=\s*"?([^"]*)"?\s*$') {
+                if ($Matches[1] -eq 'ID')      { $script:ServiceApiOsId     = $Matches[2].Trim().ToLowerInvariant() }
+                if ($Matches[1] -eq 'ID_LIKE') { $script:ServiceApiOsIdLike = $Matches[2].Trim().ToLowerInvariant() }
+            }
+        }
+    }
+    $serviceApiRhelIds = @('rhel', 'fedora', 'centos', 'almalinux', 'rocky', 'ol')
+    $serviceApiOsTokens = @($script:ServiceApiOsId) + @($script:ServiceApiOsIdLike -split '\s+') |
+        Where-Object { $_ }
+    $script:ServiceApiIsRhelFamily = [bool]($serviceApiOsTokens | Where-Object { $serviceApiRhelIds -contains $_ })
+    if (-not $script:ServiceApiIsRhelFamily) {
+        Write-Warning ("ServiceAPI is tested on RHEL-family Linux. Detected '{0}'; loading anyway." -f
+            $(if ($script:ServiceApiOsId) { $script:ServiceApiOsId } else { 'unknown distribution' }))
+    }
+} else {
+    throw 'ServiceAPI supports Windows and Linux only. This platform is not supported.'
+}
+Write-Verbose "ServiceAPI: platform $script:ServiceApiPlatform (id '$script:ServiceApiOsId', RHEL family: $script:ServiceApiIsRhelFamily)."
+
+# ==============================
 # Phase 1: Define Module Paths
 # ==============================
 $script:ModuleRoot           = $PSScriptRoot
-$script:FunctionsPath        = Join-Path -Path $script:ModuleRoot -ChildPath 'Functions'
+# Folder names are case-sensitive on Linux: match the on-disk names exactly.
+$script:FunctionsPath        = Join-Path -Path $script:ModuleRoot -ChildPath 'functions'
 $script:PrivateFunctionsPath = Join-Path -Path $script:FunctionsPath -ChildPath 'Private'
 $script:PublicFunctionsPath  = Join-Path -Path $script:FunctionsPath -ChildPath 'Public'
 
-# User data paths: outside the module directory so updates never overwrite user config
-# services.json roams with the user profile across machines where the module is installed
-$script:ServiceApiConfigPath     = Join-Path -Path $env:APPDATA -ChildPath 'ServiceAPI'
+# User data paths: outside the module directory so updates never overwrite user config.
+# Windows: services.json roams with the user profile; the vault index is machine-local.
+# Linux: XDG base directories (config for services.json, data for the vault index).
+if ($script:ServiceApiIsWindows) {
+    $serviceApiConfigRoot = $env:APPDATA
+    $serviceApiDataRoot   = $env:LOCALAPPDATA
+} else {
+    $serviceApiHome = if ($env:HOME) { $env:HOME } else { [Environment]::GetFolderPath('UserProfile') }
+    $serviceApiConfigRoot = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path -Path $serviceApiHome -ChildPath '.config' }
+    $serviceApiDataRoot   = if ($env:XDG_DATA_HOME)   { $env:XDG_DATA_HOME }   else { Join-Path -Path $serviceApiHome -ChildPath '.local/share' }
+}
+$script:ServiceApiConfigPath     = Join-Path -Path $serviceApiConfigRoot -ChildPath 'ServiceAPI'
 # credential-index.json is machine-local, consistent with the SecretManagement vault store
-$script:ServiceApiVaultIndexPath = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'ServiceAPI'
+$script:ServiceApiVaultIndexPath = Join-Path -Path $serviceApiDataRoot -ChildPath 'ServiceAPI'
 
 if (-not (Test-Path -Path $script:FunctionsPath -PathType Container)) {
     Write-Error "Functions directory not found: $script:FunctionsPath"
@@ -118,9 +168,16 @@ $global:ServiceApiVaultIndex = @{}
 # ==============================
 # Only runs when SecretManagement is detected. Creates credential-index.json if absent
 # and loads the index into $global:ServiceApiVaultIndex for use during credential resolution.
+# The index maps service key to label to vault name; an older array-per-key file is migrated.
 if ($script:ServiceApiHasSecretManagement) {
     Initialise-VaultIndex
     $global:ServiceApiVaultIndex = Read-VaultIndex
+    if ($script:ServiceApiVaultIndexLegacy) {
+        # The file used the older array-per-key format: rewrite it as label -> vault now, so the
+        # assignment of legacy labels does not change if another vault is registered later.
+        Save-VaultIndex -Index $global:ServiceApiVaultIndex
+        Write-Verbose 'ServiceAPI: Migrated credential-index.json to the label-to-vault format.'
+    }
     Write-Verbose "ServiceAPI: Vault index loaded ($($global:ServiceApiVaultIndex.Count) service key(s))."
 }
 

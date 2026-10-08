@@ -49,10 +49,11 @@ function Invoke-SSOProviderToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.1
-        Date        : 06-OCT-26
+        Version     : 1.4.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.4.0 | 08OCT26 | Added an explicit AriaApiToken case that points to Invoke-AriaApiTokenLogin.
         1.3.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.3.0 | 06OCT26 | Replaced Invoke-RestMethod with Invoke-ServiceApiHttpRequest for the
@@ -175,8 +176,12 @@ function Invoke-SSOProviderToken {
             throw "SSO provider [AriaOidc] returns a token pair and is acquired via Invoke-AriaOidcLogin, not this function."
         }
 
+        'AriaApiToken' {
+            throw "SSO provider [AriaApiToken] is acquired via Invoke-AriaApiTokenLogin, not this function."
+        }
+
         default {
-            throw "Unknown SSO provider [$Provider]. Supported providers: GCloud, AzureCLI, Aria, AriaOidc."
+            throw "Unknown SSO provider [$Provider]. Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken."
         }
     }
 

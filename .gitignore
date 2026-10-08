@@ -1,3 +1,10 @@
 # ServiceAPI — excluded files
 # User configuration is stored outside the module directory in AppData and LocalAppData.
 # No user data files exist within the module source tree.
+
+# Test certificates and keys are generated outside the repository; never commit them.
+*.key
+*.pem
+*.csr
+*.srl
+*.kdbx

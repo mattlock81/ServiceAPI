@@ -24,7 +24,7 @@ function Read-ServiceConfig {
 
     .EXAMPLE
         $config = Read-ServiceConfig
-        $config['aihc']['prod'].ProbeEndpoint
+        $config['aria']['prod'].ProbeEndpoint
 
         Reads one persisted field for a service and environment.
 
@@ -36,10 +36,11 @@ function Read-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.4.1
-        Date        : 06-OCT-26
+        Version     : 1.4.2
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.4.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.4.0 | 06OCT26 | Added ProbeEndpoint to the parsed field whitelist so it survives the

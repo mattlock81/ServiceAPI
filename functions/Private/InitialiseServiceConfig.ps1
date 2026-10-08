@@ -38,10 +38,12 @@ function Initialise-ServiceConfig {
 
     .NOTES
         Author  : Matthew Sillett
-        Version : 1.2.3
-        Date    : 07-OCT-26
+        Version : 1.3.0
+        Date    : 08-OCT-26
 
         CHANGE LOG
+        1.3.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
+                          Set-ServiceApiSecureMode.
         1.2.3 | 07OCT26 | File renamed from InitializeServiceConfig.ps1 to InitialiseServiceConfig.ps1
                           so the file name matches the function name and the Australian/British
                           spelling convention. No code change.
@@ -77,6 +79,7 @@ function Initialise-ServiceConfig {
     if (-not (Test-Path -Path $configDir -PathType Container)) {
         New-Item -Path $configDir -ItemType Directory -Force | Out-Null
         Write-Verbose "ServiceAPI: Created config directory: $configDir"
+        Set-ServiceApiSecureMode -Path $configDir
     }
 
     # Empty registry: no default services seeded. Register services via
@@ -87,6 +90,7 @@ function Initialise-ServiceConfig {
         $empty | ConvertTo-Json -Depth 5 |
             Set-Content -LiteralPath $configPath -Encoding UTF8 -Force
         Write-Verbose "ServiceAPI: Created empty services.json at: $configPath"
+        Set-ServiceApiSecureMode -Path $configPath
     } catch {
         Write-Warning "ServiceAPI: Failed to create services.json: $_"
     }
