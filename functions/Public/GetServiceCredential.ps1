@@ -41,6 +41,12 @@ function Get-ServiceCredential {
         The vault label to retrieve. Defaults to 'default'.
         Applies to Basic and Token auth types.
 
+    .PARAMETER Vault
+        The registered SecretManagement vault to use. Overrides the vault recorded for the label and
+        the saved default (see Get-ServiceVault). An unregistered name is rejected. Ignored with
+        -SessionOnly and for SSO.
+
+
     .PARAMETER Environment
         The environment to target: qa, prod, dev. Defaults to prod.
 
@@ -80,10 +86,12 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.8.0
+        Version     : 2.9.0
         Date        : 08-OCT-26
 
         CHANGE LOG
+        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter, passed to Resolve-VaultCredential, the QueryParam
+                          recursion, the nested Aria ssoidentity call and the credential prompt.
         2.8.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
                           Windows only; on Linux an unregistered SSODomain is reported with a clear message.
         2.7.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
@@ -145,6 +153,20 @@ function Get-ServiceCredential {
         # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault,
+
         [string]$Environment = 'prod',
 
         # Bypasses vault lookup and storage; session store only. Ignored for SSO.
@@ -177,6 +199,7 @@ function Get-ServiceCredential {
         }
         if ($Endpoint) { $basicParams['Endpoint'] = $Endpoint }
         if ($BaseUrl)  { $basicParams['BaseUrl']  = $BaseUrl  }
+        if ($Vault)    { $basicParams['Vault']    = $Vault    }
 
         $basicHeaders = Get-ServiceCredential @basicParams
         $b64          = $basicHeaders['Authorization'] -replace '^Basic\s+', ''
@@ -232,7 +255,7 @@ function Get-ServiceCredential {
                 if ($entry.Provider -eq 'Aria') {
                     # Mirrors the Aria resolution in Set-ServiceCredential's SSO branch:
                     # keep both in sync if either changes.
-                    $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
+                    $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment -Vault $Vault
                     $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
                     $ariaDecoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ariaB64))
                     $ariaColonIndex   = $ariaDecoded.IndexOf(':')
@@ -322,6 +345,7 @@ function Get-ServiceCredential {
             }
             if ($Endpoint) { $vaultParams['Endpoint'] = $Endpoint }
             if ($BaseUrl)  { $vaultParams['BaseUrl']  = $BaseUrl  }
+            if ($Vault)    { $vaultParams['Vault']    = $Vault    }
 
             $resolved = Resolve-VaultCredential @vaultParams
 
@@ -356,7 +380,7 @@ function Get-ServiceCredential {
 
         # Token not found: prompt interactively
         Write-Verbose "No token found for [$key]. Prompting interactively."
-        Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Token -Label $Label
+        Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Token -Label $Label -Vault $Vault
 
         if (-not $global:ServiceTokens.ContainsKey($key)) {
             throw "Token was not stored for [$key] after prompt. Aborting request."
@@ -385,6 +409,7 @@ function Get-ServiceCredential {
         }
         if ($Endpoint) { $vaultParams['Endpoint'] = $Endpoint }
         if ($BaseUrl)  { $vaultParams['BaseUrl']  = $BaseUrl  }
+        if ($Vault)    { $vaultParams['Vault']    = $Vault    }
 
         $resolved = Resolve-VaultCredential @vaultParams
 
@@ -444,7 +469,7 @@ function Get-ServiceCredential {
     if (-not $cred) {
         Write-Verbose "No stored Basic Auth credential for [$Service-$Environment]. Prompting."
         try {
-            Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic -Label $Label
+            Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic -Label $Label -Vault $Vault
         } catch {
             throw "Interactive credential prompt failed: $_"
         }

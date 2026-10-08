@@ -52,10 +52,11 @@ function Test-IsTokenValue {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.1.0 | 08OCT26 | Vault selection: the vault index match reads the label keys of the label-to-vault schema.
         1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the help examples required by the CMF standard.
@@ -73,7 +74,7 @@ function Test-IsTokenValue {
     # Rule 1: Vault index match takes precedence; explicit label wins
     if ($ServiceKey -and $global:ServiceApiVaultIndex -and
         $global:ServiceApiVaultIndex.ContainsKey($ServiceKey) -and
-        $Value -in $global:ServiceApiVaultIndex[$ServiceKey]) {
+        $Value -in @($global:ServiceApiVaultIndex[$ServiceKey].Keys)) {
         return $false
     }
 

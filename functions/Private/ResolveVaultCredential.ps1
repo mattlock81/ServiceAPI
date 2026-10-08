@@ -47,6 +47,11 @@ function Resolve-VaultCredential {
         For Token mode: may also be a raw token value distinguished by heuristic.
         For Basic mode: always treated as a vault label.
 
+    .PARAMETER Vault
+        The registered SecretManagement vault to read from or store to. Overrides the vault
+        recorded for the label and the saved default (see Resolve-ServiceVault). An unregistered
+        name throws. Ignored with -SessionOnly.
+
     .PARAMETER Endpoint
         The endpoint from the originating Invoke-APIRequest call, used for the test call.
 
@@ -75,10 +80,13 @@ function Resolve-VaultCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.3.0
+        Version     : 1.4.0
         Date        : 08-OCT-26
 
         CHANGE LOG
+        1.4.0 | 08OCT26 | Vault selection: new -Vault parameter. Reads use the vault recorded for the label,
+                          the saved default or the only registered vault, and Get-Secret is scoped to it; writes use
+                          Resolve-ServiceVault and record the vault in the index. The hardcoded LocalStore is gone.
         1.3.0 | 08OCT26 | Linux support: converts a SecureString through ConvertSecureStringToPlainText,
                           which reads the BSTR as UTF-16 and frees it. PtrToStringAuto decodes as UTF-8 on Linux
                           and never freed the BSTR.
@@ -109,6 +117,7 @@ function Resolve-VaultCredential {
         [string]$AuthType = 'Token',
 
         [string]$Label = 'default',
+        [string]$Vault,
         [string]$Endpoint,
         [string]$BaseUrl,
         [switch]$SessionOnly
@@ -118,6 +127,12 @@ function Resolve-VaultCredential {
     $vaultName  = "$Service-$Label-$Environment"
     $maxRetries = 3
     $isBasic    = $AuthType -eq 'Basic'
+
+    # An explicit -Vault must be registered: fail early, listing the registered vaults.
+    $explicitVault = $null
+    if ($Vault -and -not $SessionOnly -and $script:ServiceApiHasSecretManagement) {
+        $explicitVault = Resolve-ServiceVault -Vault $Vault
+    }
 
     # =========================================================================
     # VAULT LOOKUP: skip when -SessionOnly is set
@@ -133,14 +148,17 @@ function Resolve-VaultCredential {
             }
         }
 
-        $indexEntry = $global:ServiceApiVaultIndex[$serviceKey]
+        $indexEntry  = $global:ServiceApiVaultIndex[$serviceKey]
+        $indexLabels = if ($indexEntry) { @($indexEntry.Keys | Sort-Object) } else { @() }
 
-        if ($indexEntry -and $Label -in $indexEntry) {
+        if ($indexEntry -and $Label -in $indexLabels) {
             # Label exists in index: retrieve from vault
             Write-Verbose "Vault label [$Label] found for [$serviceKey]. Retrieving..."
 
             try {
-                $secret = Get-Secret -Name $vaultName -ErrorAction Stop
+                $readVault = Resolve-ServiceVault -Vault $explicitVault -ServiceKey $serviceKey -Label $Label
+                if (-not $readVault) { throw "No vault could be chosen for [$vaultName]." }
+                $secret = Get-Secret -Name $vaultName -Vault $readVault -ErrorAction Stop
 
                 if ($isBasic) {
                     # Basic path expects PSCredential: normalise via shared helper
@@ -168,22 +186,24 @@ function Resolve-VaultCredential {
                 # Fall through to interactive prompt
             }
 
-        } elseif ($indexEntry -and $indexEntry.Count -gt 1) {
+        } elseif ($indexEntry -and $indexLabels.Count -gt 1) {
             # Multiple labels exist: present selection list
             Write-Host "`nMultiple credentials available for [$serviceKey]:" -ForegroundColor Cyan
-            for ($i = 0; $i -lt $indexEntry.Count; $i++) {
-                Write-Host "  [$($i + 1)] $($indexEntry[$i])"
+            for ($i = 0; $i -lt $indexLabels.Count; $i++) {
+                Write-Host "  [$($i + 1)] $($indexLabels[$i])"
             }
 
-            $selection = Read-Host "Select credential (1-$($indexEntry.Count))"
+            $selection = Read-Host "Select credential (1-$($indexLabels.Count))"
             $idx       = [int]$selection - 1
 
-            if ($idx -ge 0 -and $idx -lt $indexEntry.Count) {
-                $selectedLabel = $indexEntry[$idx]
+            if ($idx -ge 0 -and $idx -lt $indexLabels.Count) {
+                $selectedLabel = $indexLabels[$idx]
                 $selectedVault = "$Service-$selectedLabel-$Environment"
 
                 try {
-                    $secret = Get-Secret -Name $selectedVault -ErrorAction Stop
+                    $selectedStore = Resolve-ServiceVault -Vault $explicitVault -ServiceKey $serviceKey -Label $selectedLabel
+                    if (-not $selectedStore) { throw "No vault could be chosen for [$selectedVault]." }
+                    $secret = Get-Secret -Name $selectedVault -Vault $selectedStore -ErrorAction Stop
 
                     if ($isBasic) {
                         Write-Verbose "Retrieved vault secret [$selectedVault]; normalising to PSCredential."
@@ -340,15 +360,16 @@ function Resolve-VaultCredential {
             $storeName = "$Service-$labelInput-$Environment"
 
             try {
-                if ($isBasic) {
-                    Set-Secret -Name $storeName -Secret $resolved -Vault LocalStore -ErrorAction Stop
-                } else {
-                    Set-Secret -Name $storeName -Secret $resolved -Vault LocalStore -ErrorAction Stop
-                }
-                Write-Verbose "Stored $AuthType credential in vault as [$storeName]."
+                $writeVault = Resolve-ServiceVault -Vault $explicitVault -ServiceKey $serviceKey -Label $labelInput -ForWrite
+                if ($writeVault) {
+                    Set-Secret -Name $storeName -Secret $resolved -Vault $writeVault -ErrorAction Stop
+                    Write-Verbose "Stored $AuthType credential in vault [$writeVault] as [$storeName]."
 
-                Write-VaultIndex -ServiceKey $serviceKey -Label $labelInput
-                Write-Host "Credential stored as [$storeName]." -ForegroundColor Cyan
+                    Write-VaultIndex -ServiceKey $serviceKey -Label $labelInput -Vault $writeVault
+                    Write-Host "Credential stored as [$storeName] in vault [$writeVault]." -ForegroundColor Cyan
+                } else {
+                    Write-Warning "No vault available; the credential was not stored and is used for this session only."
+                }
             } catch {
                 Write-Warning "Failed to store credential in vault: $_"
             }

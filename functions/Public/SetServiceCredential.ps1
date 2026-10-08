@@ -69,6 +69,13 @@ function Set-ServiceCredential {
         The vault label to store the credential under. Defaults to 'default'.
         Applies to Basic and Token auth types.
 
+    .PARAMETER Vault
+        The registered SecretManagement vault to store the credential in. Overrides the vault already
+        recorded for the label, the saved default and the only registered vault (see Get-ServiceVault).
+        An unregistered name is rejected with a warning and the credential stays in the session store.
+        Applies to Basic and Token; SSO is never vault-stored.
+
+
     .PARAMETER Environment
         The environment: qa, prod, dev, or global (Basic Auth only). Defaults to prod.
         Required for Token and SSO storage.
@@ -100,10 +107,13 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.9.0
+        Version     : 2.10.0
         Date        : 08-OCT-26
 
         CHANGE LOG
+        2.10.0 | 08OCT26 | Vault selection: new -Vault parameter. The vault write uses Resolve-ServiceVault (-Vault, the vault
+                          already recorded for the label, the saved default, the only registered vault, then a prompt) and
+                          records the vault in the index. The hardcoded LocalStore is gone.
         2.9.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
                           Windows only; on Linux an unregistered SSODomain is reported with a clear message.
         2.8.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
@@ -174,6 +184,20 @@ function Set-ServiceCredential {
         # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault,
+
         [string]$Environment = 'prod',
         [switch]$Global,
         [switch]$Force
@@ -221,9 +245,14 @@ function Set-ServiceCredential {
         if ($script:ServiceApiHasSecretManagement) {
             $vaultName = "$Service-$Label-$Environment"
             try {
-                Set-Secret -Name $vaultName -Secret $tokenValue -Vault LocalStore -ErrorAction Stop
-                Write-VaultIndex -ServiceKey $key -Label $Label
-                Write-Verbose "Stored token for [$key] under label [$Label] in vault as [$vaultName]."
+                $targetVault = Resolve-ServiceVault -Vault $Vault -ServiceKey $key -Label $Label -ForWrite
+                if ($targetVault) {
+                    Set-Secret -Name $vaultName -Secret $tokenValue -Vault $targetVault -ErrorAction Stop
+                    Write-VaultIndex -ServiceKey $key -Label $Label -Vault $targetVault
+                    Write-Verbose "Stored token for [$key] under label [$Label] in vault [$targetVault] as [$vaultName]."
+                } else {
+                    Write-Warning "No vault available. Token retained in session store only."
+                }
             } catch {
                 Write-Warning "Failed to store token in vault: $_. Token retained in session store only."
             }
@@ -283,7 +312,7 @@ function Set-ServiceCredential {
             # Resolve the underlying domain-account credential via the existing Basic
             # vault/fallback/prompt chain; reuses Get-ServiceCredential exactly as
             # QueryParam mode does, rather than duplicating vault lookup logic here.
-            $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment
+            $ariaBasicHeaders = Get-ServiceCredential -Service $Service -AuthType Basic -Label 'ssoidentity' -Environment $Environment -Vault $Vault
             $ariaB64          = $ariaBasicHeaders['Authorization'] -replace '^Basic\s+', ''
             $ariaDecoded      = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ariaB64))
             $ariaColonIndex   = $ariaDecoded.IndexOf(':')
@@ -460,9 +489,14 @@ function Set-ServiceCredential {
         if ($script:ServiceApiHasSecretManagement) {
             $vaultName = "$Service-$Label-$Environment"
             try {
-                Set-Secret -Name $vaultName -Secret $Credential -Vault LocalStore -ErrorAction Stop
-                Write-VaultIndex -ServiceKey $key -Label $Label
-                Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label] in vault as [$vaultName]."
+                $targetVault = Resolve-ServiceVault -Vault $Vault -ServiceKey $key -Label $Label -ForWrite
+                if ($targetVault) {
+                    Set-Secret -Name $vaultName -Secret $Credential -Vault $targetVault -ErrorAction Stop
+                    Write-VaultIndex -ServiceKey $key -Label $Label -Vault $targetVault
+                    Write-Verbose "Stored Basic Auth credential for [$key] under label [$Label] in vault [$targetVault] as [$vaultName]."
+                } else {
+                    Write-Warning "No vault available. Credential retained in session store only."
+                }
             } catch {
                 Write-Warning "Failed to store Basic Auth credential in vault: $_. Credential retained in session store only."
             }

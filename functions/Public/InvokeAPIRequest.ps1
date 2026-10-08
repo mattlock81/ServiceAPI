@@ -52,6 +52,12 @@ function Invoke-APIRequest {
         The vault credential label to retrieve for Basic and Token auth types.
         Defaults to 'default'. Ignored for SSO.
 
+    .PARAMETER Vault
+        The registered SecretManagement vault to use. Overrides the vault recorded for the label and
+        the saved default (see Get-ServiceVault). An unregistered name is rejected. Ignored with
+        -SessionOnly and for SSO.
+
+
     .PARAMETER Environment
         The environment to target: qa, prod, dev. Defaults to prod.
 
@@ -111,10 +117,12 @@ function Invoke-APIRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.8.1
-        Date        : 06-OCT-26
+        Version     : 2.9.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter, passed through to Get-ServiceConfig, Get-ServiceCredential
+                          and the 403 credential refresh.
         2.8.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.8.0 | 06OCT26 | The SSO 403 refresh-and-retry now delegates to Invoke-ServiceSsoRetry,
@@ -192,6 +200,20 @@ function Invoke-APIRequest {
 
         # Vault credential label: applies to Basic and Token. Defaults to 'default'.
         [string]$Label = 'default',
+
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault,
 
         [string]$Environment = 'prod',
         [object]$Body,
@@ -317,6 +339,7 @@ function Invoke-APIRequest {
             if ($SessionOnly) { $credParams['SessionOnly'] = $true }
             if ($Endpoint)    { $credParams['Endpoint']    = $Endpoint }
             if ($BaseUrl)     { $credParams['BaseUrl']     = $BaseUrl }
+            if ($Vault)       { $credParams['Vault']       = $Vault }
 
             $resolvedCred = Get-ServiceCredential @credParams
 
@@ -345,6 +368,7 @@ function Invoke-APIRequest {
             if ($BaseUrl)                              { $configParams['BaseUrl']     = $BaseUrl }
             if ($Endpoint)                             { $configParams['Endpoint']    = $Endpoint }
             if ($SessionOnly -and $AuthType -ne 'SSO') { $configParams['SessionOnly'] = $true }
+            if ($Vault)                              { $configParams['Vault']       = $Vault }
 
             $config = Get-ServiceConfig @configParams
             if (-not $config) {
@@ -429,7 +453,7 @@ function Invoke-APIRequest {
                     Write-Verbose "Refreshing cached Basic Auth credential for [$key]."
                 }
 
-                Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic
+                Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic -Vault $Vault
 
                 Write-Verbose "Retrying request after credential refresh."
                 return Invoke-APIRequest -Service $Service `
@@ -439,6 +463,7 @@ function Invoke-APIRequest {
                                          -Body $Body `
                                          -Headers $Headers `
                                          -BaseUrl $BaseUrl `
+                                         -Vault $Vault `
                                          -Verbose:$VerbosePreference
             } catch {
                 Write-ServiceApiHandledError -ErrorRecord $_ -Severity 'Critical' -Message 'Credential refresh failed after 403.'

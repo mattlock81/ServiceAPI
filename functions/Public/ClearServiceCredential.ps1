@@ -38,6 +38,12 @@ function Clear-ServiceCredential {
         The vault label to remove alongside the in-memory credential. Defaults to
         'default'. Applies to Basic and Token types during targeted clearing only.
 
+    .PARAMETER Vault
+        The registered SecretManagement vault to remove the secret from. Defaults to the vault recorded
+        in the index for the label. The index entry is removed only when the secret was held in the
+        vault it records.
+
+
     .PARAMETER Global
         Clears the global fallback credential (Basic Auth only).
 
@@ -70,10 +76,12 @@ function Clear-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.1
-        Date        : 06-OCT-26
+        Version     : 2.7.0
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.7.0 | 08OCT26 | Vault selection: new -Vault parameter. The secret is removed from the vault recorded in the index
+                          (or -Vault) instead of the hardcoded LocalStore.
         2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.6.0 | 17AUG26 | Added -Label parameter and automatic vault removal for Basic and
@@ -122,6 +130,20 @@ function Clear-ServiceCredential {
         # Vault label to remove alongside the in-memory credential; applies to Basic and
         # Token types during targeted clearing. Defaults to 'default'.
         [string]$Label = 'default',
+
+        [ArgumentCompleter({
+            param($cmd, $param, $word, $ast, $fakeBound)
+            if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
+                Get-SecretVault -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$word*" } |
+                    ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_.Name, $_.Name, 'ParameterValue', $_.Name
+                        )
+                    }
+            }
+        })]
+        [string]$Vault,
 
         [switch]$Global,
         [switch]$Force
@@ -203,14 +225,24 @@ function Clear-ServiceCredential {
             $script:ServiceApiHasSecretManagement -and
             $target.ContainsKey('Service') -and $target.ContainsKey('Environment')) {
 
-            $vaultName  = "$($target.Service)-$Label-$($target.Environment)"
-            $indexEntry = $global:ServiceApiVaultIndex[$key]
+            $vaultName   = "$($target.Service)-$Label-$($target.Environment)"
+            $indexEntry  = $global:ServiceApiVaultIndex[$key]
+            $indexLabels = if ($indexEntry) { @($indexEntry.Keys) } else { @() }
 
-            if ($indexEntry -and $Label -in $indexEntry) {
+            if ($indexEntry -and $Label -in $indexLabels) {
                 try {
-                    Remove-Secret -Name $vaultName -Vault LocalStore -ErrorAction Stop
-                    Remove-VaultIndex -ServiceKey $key -Label $Label
-                    Write-Verbose "Removed $type credential for [$key] under label [$Label] from vault as [$vaultName]."
+                    $removeVault = Resolve-ServiceVault -Vault $Vault -ServiceKey $key -Label $Label
+                    if (-not $removeVault) {
+                        throw "Cannot tell which vault holds [$vaultName]. Pass -Vault or choose a default with Set-ServiceVault."
+                    }
+                    Remove-Secret -Name $vaultName -Vault $removeVault -ErrorAction Stop
+
+                    # Drop the index record only when it points at the vault just cleared.
+                    $recordedVault = [string]$indexEntry[$Label]
+                    if ([string]::IsNullOrEmpty($recordedVault) -or $recordedVault -ieq $removeVault) {
+                        Remove-VaultIndex -ServiceKey $key -Label $Label
+                    }
+                    Write-Verbose "Removed $type credential for [$key] under label [$Label] from vault [$removeVault] as [$vaultName]."
                 } catch {
                     Write-Warning "Failed to remove vault secret [$vaultName]: $_."
                 }
