@@ -85,16 +85,17 @@ function Register-CustomService {
         Registers an internal API for dev environment (session-only, no SSO provider).
 
     .EXAMPLE
-        Register-CustomService -ServiceName aihc -BaseUrl 'https://aria.example.com' -SSOProvider AriaOidc -SSOTenant 'my-tenant' -ProbeEndpoint 'iaas/api/projects?$top=1' -Persistent
+        Register-CustomService -ServiceName aria -BaseUrl 'https://aria.example.com' -SSOProvider AriaOidc -SSOTenant 'my-tenant' -ProbeEndpoint 'iaas/api/projects?$top=1' -Persistent
         Registers an Aria service and names the cheap read-only endpoint used to test whether its
         bearer is valid. An AriaOidc service defaults to this value when -ProbeEndpoint is omitted.
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.1
-        Date        : 06-OCT-26
+        Version     : 2.6.2
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        2.6.2 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
         2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.6.0 | 06OCT26 | Added -ProbeEndpoint. The relative endpoint used to test whether a

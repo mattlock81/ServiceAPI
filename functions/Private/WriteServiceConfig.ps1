@@ -40,13 +40,13 @@ function Write-ServiceConfig {
         Persists a plain service entry with no SSO settings.
 
     .EXAMPLE
-        Write-ServiceConfig -ServiceName aihc -Environment prod -BaseUrl 'https://aria.example.com' `
+        Write-ServiceConfig -ServiceName aria -Environment prod -BaseUrl 'https://aria.example.com' `
             -SSOProvider AriaOidc -SSOTenant 'my-tenant'
 
         Persists an AriaOidc service together with its tenant.
 
     .EXAMPLE
-        Write-ServiceConfig -ServiceName aihc -Environment prod -BaseUrl 'https://aria.example.com' `
+        Write-ServiceConfig -ServiceName aria -Environment prod -BaseUrl 'https://aria.example.com' `
             -SSOProvider AriaOidc -SSOTenant 'my-tenant' -ProbeEndpoint 'iaas/api/projects?$top=1'
 
         Persists a probe endpoint alongside the SSO settings. An entry for the same service and
@@ -54,10 +54,11 @@ function Write-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.5.0
+        Version     : 1.5.1
         Date        : 08-OCT-26
 
         CHANGE LOG
+        1.5.1 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
         1.5.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
                           Set-ServiceApiSecureMode.
         1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
