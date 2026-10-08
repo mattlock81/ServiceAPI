@@ -56,14 +56,14 @@ function Invoke-ServiceSsoRetry {
         Retried, AuthorisationDenied, BearerUnchanged, RefreshFailed, RetryFailed.
 
     .EXAMPLE
-        $retry = Invoke-ServiceSsoRetry -Service aihc -Environment prod -BaseUrl $resolvedBaseUrl `
+        $retry = Invoke-ServiceSsoRetry -Service aria -Environment prod -BaseUrl $resolvedBaseUrl `
             -Uri $uri -Method GET -Headers $mergedHeaders
         if ($retry.Outcome -eq 'Retried') { return $retry.Response }
 
         Retries a forbidden GET once after a token refresh, and returns the retried response.
 
     .EXAMPLE
-        $retry = Invoke-ServiceSsoRetry -Service aihc -BaseUrl $baseUrl -Uri $uri -Method POST `
+        $retry = Invoke-ServiceSsoRetry -Service aria -BaseUrl $baseUrl -Uri $uri -Method POST `
             -Headers $headers -Body $json
         $retry.Outcome
 
@@ -71,17 +71,18 @@ function Invoke-ServiceSsoRetry {
         refresh was made.
 
     .EXAMPLE
-        $retry = Invoke-ServiceSsoRetry -Service aihc -BaseUrl $baseUrl -Uri $uri -Method GET `
+        $retry = Invoke-ServiceSsoRetry -Service aria -BaseUrl $baseUrl -Uri $uri -Method GET `
             -Headers $headers -Verbose
 
         Shows which guard decided the outcome in the verbose output.
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.1
-        Date        : 06-OCT-26
+        Version     : 1.0.2
+        Date        : 08-OCT-26
 
         CHANGE LOG
+        1.0.2 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
         1.0.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.0 | 06OCT26 | Initial version. The SSO 403 refresh-and-retry and its two guards,

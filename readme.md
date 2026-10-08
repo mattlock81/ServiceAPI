@@ -179,7 +179,7 @@ When a guard cannot decide, the request falls back to refresh-and-retry. The pro
 
 ```powershell
 # Register a service with an explicit probe endpoint (optional for AriaOidc, which has a default)
-Register-CustomService -ServiceName aihc -BaseUrl 'https://<aria-host>' `
+Register-CustomService -ServiceName aria -BaseUrl 'https://<aria-host>' `
     -SSOProvider AriaOidc -SSOTenant '<tenant>' `
     -ProbeEndpoint 'iaas/api/projects?$top=1' -Persistent
 ```
