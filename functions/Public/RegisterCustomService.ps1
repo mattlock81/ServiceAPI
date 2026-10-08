@@ -21,7 +21,7 @@ function Register-CustomService {
         When -Persistent is not specified, the registration is session-only and lost on module
         reload.
 
-        Supported SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
+        Supported SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
 
     .PARAMETER ServiceName
         The name to identify the service (e.g., custom-api, github, googleapi).
@@ -40,7 +40,9 @@ function Register-CustomService {
         Optional. Associates a default SSO provider with this service registration.
         When specified, -UseSSO calls against this service will use this provider for
         token acquisition and refresh without requiring the provider to be named on each call.
-        Accepted values: GCloud, AzureCLI, Aria, AriaOidc.
+        Accepted values: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken. AriaApiToken exchanges
+        an Aria API token (stored with Set-ServiceCredential -AuthType Token -Label apitoken)
+        for a bearer with no browser, so it suits unattended runs.
 
     .PARAMETER SSODomain
         Optional. Only meaningful when -SSOProvider is 'Aria'. The domain to submit
@@ -49,9 +51,10 @@ function Register-CustomService {
         explicitly for non-domain-joined systems (e.g. a personal dev machine).
 
     .PARAMETER SSOTenant
-        Optional. Only meaningful when -SSOProvider is 'AriaOidc'. The Aria tenant name, as it
-        appears after 'service=tenant:' in the portal login redirect. Required by the AriaOidc
-        provider to open the correct tenant portal during browser login.
+        Optional. Used by the AriaOidc and AriaApiToken providers. The Aria tenant name, as it
+        appears after 'service=tenant:' in the portal login redirect. Required by AriaOidc to
+        open the correct tenant portal during browser login. Optional for AriaApiToken, where it
+        enables the oauth-tenant exchange shape.
 
     .PARAMETER ProbeEndpoint
         Optional. A relative endpoint (for example 'iaas/api/projects?$top=1') that returns 2xx
@@ -91,10 +94,12 @@ function Register-CustomService {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.6.2
+        Version     : 2.7.0
         Date        : 08-OCT-26
 
         CHANGE LOG
+        2.7.0 | 08OCT26 | Added AriaApiToken to the -SSOProvider ValidateSet. -SSOTenant is accepted for AriaOidc and
+                          AriaApiToken.
         2.6.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
         2.6.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
@@ -146,7 +151,7 @@ function Register-CustomService {
             'Content-Type' = 'application/json'
         },
 
-        [ValidateSet('GCloud', 'AzureCLI', 'Aria', 'AriaOidc')]
+        [ValidateSet('GCloud', 'AzureCLI', 'Aria', 'AriaOidc', 'AriaApiToken')]
         [string]$SSOProvider,
 
         [string]$SSODomain,
@@ -195,8 +200,8 @@ function Register-CustomService {
     }
 
     if ($SSOTenant) {
-        if ($SSOProvider -ne 'AriaOidc') {
-            Write-Warning "-SSOTenant is only used by the AriaOidc SSO provider and will be stored but ignored for provider [$SSOProvider]."
+        if ($SSOProvider -notin @('AriaOidc', 'AriaApiToken')) {
+            Write-Warning "-SSOTenant is only used by the AriaOidc and AriaApiToken SSO providers and will be stored but ignored for provider [$SSOProvider]."
         }
         $entry['SSOTenant'] = $SSOTenant
         Write-Verbose "SSO tenant [$SSOTenant] registered for [$ServiceName-$Environment]."

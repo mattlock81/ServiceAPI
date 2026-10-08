@@ -53,13 +53,21 @@ function Set-ServiceCredential {
         refresh token is held in memory alongside the bearer token and never stored in the
         vault. This path is interactive and not suitable for unattended automation.
 
+        The AriaApiToken provider is the unattended Aria path. It reads an Aria API token (created
+        in the portal under My Account, API Tokens) stored with this function as a Token
+        credential under the label 'apitoken' (paste the token alone at the Token prompt), exchanges it for a bearer
+        (Invoke-AriaApiTokenLogin), and exchanges it again whenever the bearer nears expiry. No
+        browser is involved, and the API token is read from the vault on each exchange, so a new
+        process needs no interaction. Register the service with -SSOProvider AriaApiToken
+        (and optionally -SSOTenant).
+
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
         Required for Token and SSO storage. Optional for Basic Auth global storage.
 
     .PARAMETER AuthType
         The authentication type to store. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
 
     .PARAMETER Credential
         A PSCredential object for Basic Auth storage. If omitted, prompts interactively.
@@ -107,10 +115,13 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.10.0
+        Version     : 2.11.0
         Date        : 08-OCT-26
 
         CHANGE LOG
+        2.11.0 | 08OCT26 | AriaApiToken support: new SSO provider branch. The API token is read with Get-AriaApiToken
+                          (label apitoken, from the chosen vault), exchanged by Invoke-AriaApiTokenLogin with the bearer chosen by
+                          test, and cached with its expiry and the exchange shape that worked.
         2.10.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves). The vault write uses Resolve-ServiceVault (-Vault, the vault
                           already recorded for the label, the saved default, the only registered vault, then a prompt) and
                           records the vault in the index. The hardcoded LocalStore is gone.
@@ -289,7 +300,7 @@ function Set-ServiceCredential {
                 throw "SSO provider is required. Register one via Register-CustomService -SSOProvider."
             }
 
-            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc" -ForegroundColor Cyan
+            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken" -ForegroundColor Cyan
             $provider = Read-Host "Enter provider name"
 
             if ([string]::IsNullOrWhiteSpace($provider)) {
@@ -401,6 +412,51 @@ function Set-ServiceCredential {
             }
 
             Write-Verbose "Stored SSO token for [$oidcKey] via provider [AriaOidc]. Expires at [$($global:ServiceSSOTokens[$oidcKey].ExpiresAt)] UTC."
+            return
+
+        } elseif ($provider -eq 'AriaApiToken') {
+
+            # Resolve BaseUrl and the optional tenant from the registry
+            $apiEntry = $null
+            if ($global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
+                $apiEntry = $global:ServiceRegistry[$Service][$Environment]
+            }
+            if (-not $apiEntry -or [string]::IsNullOrWhiteSpace($apiEntry.BaseUrl)) {
+                throw "Could not resolve BaseUrl for [$Service-$Environment]. Register the service first."
+            }
+
+            # The API token lives in the vault under the label 'apitoken' (mirrors the Aria
+            # provider's 'ssoidentity' lookup). It is read on every exchange and not cached.
+            $apiToken = Get-AriaApiToken -Service $Service -Environment $Environment -Vault $Vault
+
+            $apiKey    = New-ServiceKey -Service $Service -Environment $Environment
+            $apiCached = $null
+            if ($global:ServiceSSOTokens.ContainsKey($apiKey)) {
+                $apiCached = $global:ServiceSSOTokens[$apiKey]
+            }
+
+            $apiLoginParams = @{
+                BaseUrl  = $apiEntry.BaseUrl
+                ApiToken = $apiToken
+            }
+            if ($apiEntry.SSOTenant) { $apiLoginParams['Tenant'] = $apiEntry.SSOTenant }
+            if ($apiCached -and $apiCached.ExchangeMode) { $apiLoginParams['ExchangeMode'] = $apiCached.ExchangeMode }
+
+            $apiProbe = Get-ServiceProbeEndpoint -Service $Service -Environment $Environment
+            if ($apiProbe) { $apiLoginParams['ProbeEndpoint'] = $apiProbe }
+
+            $apiLogin = Invoke-AriaApiTokenLogin @apiLoginParams
+
+            $global:ServiceSSOTokens[$apiKey] = @{
+                Token        = $apiLogin.Bearer
+                ExpiresAt    = [DateTime]::UtcNow.AddSeconds($apiLogin.ExpiresIn)
+                Provider     = $provider
+                BearerMode   = $apiLogin.BearerMode
+                ExchangeMode = $apiLogin.ExchangeMode
+            }
+
+            Write-Verbose "Stored SSO token for [$apiKey] via provider [AriaApiToken] ($($apiLogin.ExchangeMode), $($apiLogin.BearerMode) bearer). Expires at [$($global:ServiceSSOTokens[$apiKey].ExpiresAt)] UTC."
             return
 
         } else {

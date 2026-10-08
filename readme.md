@@ -10,7 +10,7 @@
 
 ServiceAPI is a PowerShell module that provides a unified REST API framework for interacting with multiple services. It supports Basic Auth, static Token, SSO OAuth, QueryParam (credential delivered via URL query string rather than a header), and None (unauthenticated) authentication modes via a persistent service registry pattern, with optional credential persistence through Microsoft SecretManagement vault integration.
 
-SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), and `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener).
+SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener), and `AriaApiToken` (Aria / VCF Automation via a self-service API token exchanged without a browser, for unattended use).
 
 Services are registered once with a BaseUrl and stored in a user-scoped `services.json` file. Credentials are resolved automatically from the vault, from in-memory global state, or via interactive prompt — in that order. All public functions share a unified `-AuthType` parameter with tab completion, and the `-Service` parameter tab-completes from the live registry.
 
@@ -155,6 +155,30 @@ To see which call shapes and which bearer a tenant accepts (statuses only — no
 ```powershell
 & (Get-Module ServiceAPI) { Invoke-AriaOidcProbe -Service aria-example }
 ```
+
+#### AriaApiToken (Aria / VCF Automation via a self-service API token, no browser)
+
+For unattended use. An Aria API token (created in the portal under My Account, API Tokens) is stored in a vault and exchanged for a short-lived bearer whenever one is needed, so a new process, a scheduled task or a headless Linux host needs no browser, no userscript and no person. The API token is read from the vault on each exchange and is never cached in memory beyond the call.
+
+```powershell
+# SSOTenant is optional; it enables the oauth-tenant exchange shape.
+Register-CustomService -ServiceName aria-example -BaseUrl 'https://aria.example.com' -SSOProvider AriaApiToken -SSOTenant 'my-tenant' -Persistent
+
+# Store the API token once, under the label 'apitoken' (paste the token alone at the prompt).
+Set-ServiceCredential -Service aria-example -AuthType Token -Label apitoken -Vault automation
+
+Invoke-APIRequest -Service aria-example -Endpoint 'iaas/api/projects' -AuthType SSO
+```
+
+The exchange adapts to the deployment. `Invoke-AriaApiTokenExchange` tries `csp-authorize` (`/csp/gateway/am/api/auth/api-tokens/authorize`), `oauth-tenant` (`/oauth/tenant/<tenant>/token`, when a tenant is registered) and `iaas-login` (`/iaas/api/login`), caches the shape that worked and tries it first next time. The bearer is chosen by test, as for `AriaOidc`: it is sent to the probe endpoint, and if it is not accepted the `iaas/api/login` token is tried. A refused API token produces an error that lists the status of each shape and never includes the token.
+
+To see which shapes and which bearer a tenant accepts (statuses only, no tokens printed):
+
+```powershell
+& (Get-Module ServiceAPI) { Invoke-AriaApiTokenProbe -Service aria-example }
+```
+
+The API token acts as the identity that created it, so protect it like a password and prefer a vault such as `automation`. These call shapes come from the Aria design notes and are proven against a local emulation only; they have not yet been verified against a real tenant.
 
 ### Certificate-Aware Transport
 
@@ -413,10 +437,14 @@ ServiceAPI/
     │   ├── ConvertFromJwtPayload.ps1
     │   ├── ConvertSecureStringToPlainText.ps1
     │   ├── ConvertVaultSecretToCredential.ps1
+    │   ├── GetAriaApiToken.ps1
     │   ├── GetAriaCourierScript.ps1
     │   ├── GetServiceProbeEndpoint.ps1
     │   ├── InitialiseServiceConfig.ps1
     │   ├── InitialiseVaultIndex.ps1
+    │   ├── InvokeAriaApiTokenExchange.ps1
+    │   ├── InvokeAriaApiTokenLogin.ps1
+    │   ├── InvokeAriaApiTokenProbe.ps1
     │   ├── InvokeAriaOidcLogin.ps1
     │   ├── InvokeAriaOidcProbe.ps1
     │   ├── InvokeAriaOidcRefresh.ps1
@@ -469,7 +497,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| Unreleased | 08Oct26 | Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
+| Unreleased | 09Oct26 | AriaApiToken SSO provider (Register-CustomService 2.7.0, Set-ServiceCredential 2.11.0, Get-ServiceCredential 2.10.0, Invoke-SSOProviderToken 1.4.0, Get-ServiceProbeEndpoint 1.1.0; new private Invoke-AriaApiTokenExchange, Invoke-AriaApiTokenLogin, Invoke-AriaApiTokenProbe and Get-AriaApiToken 1.0.0). Tested against a local Aria emulation only; not yet verified against a tenant. Earlier unreleased work, 08Oct26: Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
 | 3.0.0 | 08Oct26 | Linux support. Phase 0.6 platform detection (Windows or Linux; RHEL-family is the target, other Linux warns, macOS refused). XDG data locations and owner-only permissions on Linux (new private Set-ServiceApiSecureMode 1.0.0, used by Initialise-ServiceConfig 1.3.0, Initialise-VaultIndex 1.2.0, Write-ServiceConfig 1.5.0, Write-VaultIndex 1.2.0, Remove-VaultIndex 1.1.0). SecureString conversion no longer uses PtrToStringAuto (Convert-VaultSecretToCredential 1.1.0, Resolve-VaultCredential 1.3.0). New private Open-ServiceApiBrowser 1.0.0 used by Invoke-AriaOidcLogin 1.4.0. The Aria domain-joined fallback runs on Windows only (Get-ServiceCredential 2.8.0, Set-ServiceCredential 2.9.0). Windows behaviour unchanged; untested on RHEL-family Linux and not re-tested on Windows. |
 | 2.10.4 | 07Oct26 | Australian/British spelling consistency, no code change. The private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` are renamed `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` to match their function names (`Initialise-ServiceConfig`, `Initialise-VaultIndex`), and the manifest text now reads Data Centre and licence. |
 | 2.10.3 | 07Oct26 | Write-ServiceApiHandledError (1.1.0) passes the context to Debug-Error -Message when the installed SYSCommon provides it (2.8.0 and later), so the context and the error share one log entry. Older SYSCommon keeps the previous behaviour of logging the context separately through Write-Log. |
