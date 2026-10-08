@@ -149,7 +149,7 @@ Built after 3.0.0 from the design recorded in 1.2.0 of this file. Decisions D22 
 
 **What exists**
 
-- Public: `Get-ServiceVault`, `Set-ServiceVault`. `-Vault` on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`, with tab completion from the registered vaults, forwarded to the nested Aria `ssoidentity` lookup, the QueryParam recursion, the credential prompt and the 403 credential refresh.
+- Public: `Get-ServiceVault`, `Set-ServiceVault`. `-Vault` on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`, declared last in each parameter block so no existing positional parameter moves, with tab completion from the registered vaults, forwarded to the nested Aria `ssoidentity` lookup, the QueryParam recursion, the credential prompt and the 403 credential refresh.
 - Private: `Resolve-ServiceVault`, `New-ServiceDefaultVault`, `Save-VaultIndex`, `Read-VaultConfig`, `Write-VaultConfig`, `Test-ServiceApiInteractive`. `Read-`, `Write-` and `Remove-VaultIndex`, `Test-IsTokenValue` and `Resolve-VaultCredential` changed for the label-to-vault schema.
 - Data: `credential-index.json` (label to vault) and `vault-config.json` (the saved default) in the machine-local data folder, owner-only on Linux.
 

@@ -90,7 +90,7 @@ function Get-ServiceCredential {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter, passed to Resolve-VaultCredential, the QueryParam
+        2.9.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves), passed to Resolve-VaultCredential, the QueryParam
                           recursion, the nested Aria ssoidentity call and the credential prompt.
         2.8.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
                           Windows only; on Linux an unregistered SSODomain is reported with a clear message.
@@ -153,6 +153,15 @@ function Get-ServiceCredential {
         # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [string]$Environment = 'prod',
+
+        # Bypasses vault lookup and storage; session store only. Ignored for SSO.
+        [switch]$SessionOnly,
+
+        # Passed through to Resolve-VaultCredential for test call validation.
+        [string]$Endpoint,
+        [string]$BaseUrl,
+
         [ArgumentCompleter({
             param($cmd, $param, $word, $ast, $fakeBound)
             if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
@@ -165,16 +174,7 @@ function Get-ServiceCredential {
                     }
             }
         })]
-        [string]$Vault,
-
-        [string]$Environment = 'prod',
-
-        # Bypasses vault lookup and storage; session store only. Ignored for SSO.
-        [switch]$SessionOnly,
-
-        # Passed through to Resolve-VaultCredential for test call validation.
-        [string]$Endpoint,
-        [string]$BaseUrl
+        [string]$Vault
     )
 
     # Initialise standard headers

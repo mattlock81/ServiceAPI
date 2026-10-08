@@ -70,7 +70,7 @@ function Get-ServiceConfig {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        2.6.0 | 08OCT26 | Vault selection: new -Vault parameter, passed through to Get-ServiceCredential.
+        2.6.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves), passed through to Get-ServiceCredential.
         2.5.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         2.5.1 | 17MAY26 | Added 'None' to -AuthType ValidateSet. Credential resolution
@@ -113,6 +113,15 @@ function Get-ServiceConfig {
         # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [string]$Environment = 'prod',
+        [string]$BaseUrl,
+
+        # Bypasses vault lookup and storage; passed through to Get-ServiceCredential. Ignored for SSO.
+        [switch]$SessionOnly,
+
+        # Passed through to Get-ServiceCredential for vault test call validation.
+        [string]$Endpoint,
+
         [ArgumentCompleter({
             param($cmd, $param, $word, $ast, $fakeBound)
             if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
@@ -125,16 +134,7 @@ function Get-ServiceConfig {
                     }
             }
         })]
-        [string]$Vault,
-
-        [string]$Environment = 'prod',
-        [string]$BaseUrl,
-
-        # Bypasses vault lookup and storage; passed through to Get-ServiceCredential. Ignored for SSO.
-        [switch]$SessionOnly,
-
-        # Passed through to Get-ServiceCredential for vault test call validation.
-        [string]$Endpoint
+        [string]$Vault
     )
 
     try {

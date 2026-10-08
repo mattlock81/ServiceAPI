@@ -111,7 +111,7 @@ function Set-ServiceCredential {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        2.10.0 | 08OCT26 | Vault selection: new -Vault parameter. The vault write uses Resolve-ServiceVault (-Vault, the vault
+        2.10.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves). The vault write uses Resolve-ServiceVault (-Vault, the vault
                           already recorded for the label, the saved default, the only registered vault, then a prompt) and
                           records the vault in the index. The hardcoded LocalStore is gone.
         2.9.0 | 08OCT26 | Linux support: the domain-joined fallback (Get-CimInstance Win32_ComputerSystem) runs on
@@ -184,6 +184,10 @@ function Set-ServiceCredential {
         # Vault label: applies to Basic and Token auth types. Defaults to 'default'.
         [string]$Label = 'default',
 
+        [string]$Environment = 'prod',
+        [switch]$Global,
+        [switch]$Force,
+
         [ArgumentCompleter({
             param($cmd, $param, $word, $ast, $fakeBound)
             if (Get-Command -Name Get-SecretVault -ErrorAction SilentlyContinue) {
@@ -196,11 +200,7 @@ function Set-ServiceCredential {
                     }
             }
         })]
-        [string]$Vault,
-
-        [string]$Environment = 'prod',
-        [switch]$Global,
-        [switch]$Force
+        [string]$Vault
     )
 
     # =========================================================================
