@@ -58,7 +58,7 @@ function Write-ServiceConfig {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        1.5.1 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
+        1.5.1 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.5.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
                           Set-ServiceApiSecureMode.
         1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected

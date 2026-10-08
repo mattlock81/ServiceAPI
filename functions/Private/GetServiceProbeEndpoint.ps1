@@ -47,7 +47,7 @@ function Get-ServiceProbeEndpoint {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        1.0.1 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
+        1.0.1 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.0.0 | 06OCT26 | Initial version. Single source of truth for the probe endpoint,
                           shared by the SSO 403 retry and the AriaOidc bearer selection.
     #>

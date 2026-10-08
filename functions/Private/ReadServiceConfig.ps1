@@ -40,7 +40,7 @@ function Read-ServiceConfig {
         Date        : 08-OCT-26
 
         CHANGE LOG
-        1.4.2 | 08OCT26 | Help examples: the example service name aihc is replaced with aria. No code change.
+        1.4.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.4.0 | 06OCT26 | Added ProbeEndpoint to the parsed field whitelist so it survives the
