@@ -3,7 +3,7 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 3.0.0
+# Version: 3.0.1
 # Author: Matthew Sillett
 # Date: 2026-10-08
 

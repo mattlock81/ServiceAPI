@@ -1,7 +1,7 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 3.0.0 (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
+**Version at time of writing**: 3.0.1 (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
 **Last updated**: 08-OCT-26
 **Author**: Matthew Sillett
 
@@ -22,7 +22,7 @@
 - v2.10.3 passes the context to `Debug-Error -Message` when the installed SYSCommon provides it (2.8.0 and later) and keeps the `Write-Log` path for older SYSCommon (D17).
 - v2.10.4 changes no code. It renames the two private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` to `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` so they match their functions, and corrects the manifest text to Data Centre and licence (D18).
 - v3.0.0 adds Linux support (D19 to D21). Phase 0.6 of the loader detects the platform; on Linux the service registry and the vault index move to the XDG directories and are restricted to the owner; SecureString conversion no longer uses `PtrToStringAuto`; the new `Open-ServiceApiBrowser` opens the AriaOidc login portal on either platform; the Aria domain-joined fallback runs on Windows only. Windows behaviour is intended to be unchanged but has not been re-tested.
-- Vault selection (unreleased, after 3.0.0) is built. The index maps `service-key -> label -> vault`; `Get-ServiceVault` and `Set-ServiceVault` manage a saved default in `vault-config.json`; `-Vault` is on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`; `Resolve-ServiceVault` chooses the vault (D22 to D24). The hardcoded `LocalStore` and both unscoped `Get-Secret` calls are gone. Verified with 19 scripted checks against two KeePass key-file vaults on PowerShell 7.6 on Ubuntu, plus four unattended scenarios; not run on Windows or a RHEL-family host. No module version has been assigned to it: the version is the owner's decision.
+- Vault selection (released in 3.0.1) is built. The index maps `service-key -> label -> vault`; `Get-ServiceVault` and `Set-ServiceVault` manage a saved default in `vault-config.json`; `-Vault` is on `Set-`, `Get-` and `Clear-ServiceCredential`, `Invoke-APIRequest` and `Get-ServiceConfig`; `Resolve-ServiceVault` chooses the vault (D22 to D24). The hardcoded `LocalStore` and both unscoped `Get-Secret` calls are gone. Verified with 19 scripted checks against two KeePass key-file vaults on PowerShell 7.6 on Ubuntu, plus four unattended scenarios; not run on Windows or a RHEL-family host. No module version has been assigned to it: the version is the owner's decision.
 - The `AriaApiToken` SSO provider is built (unreleased, D26): an Aria API token stored in a vault under the label `apitoken` is exchanged for a bearer by a ladder of call shapes (`csp-authorize`, `oauth-tenant`, `iaas-login`), with the bearer chosen by test. It needs no browser, so it suits unattended and headless Linux use. Proven against a local emulation (13 checks) only; the call shapes have not been verified against a tenant. The verification plan is section 8.
 - Tests live in `tests/` (see `tests/README.md`): a local HTTP/HTTPS server with generated certificates drives `Invoke-APIRequest` end to end (22 checks), and two vault runners cover selection (19 checks) and unattended behaviour (4 scenarios). They run on Linux only and isolate state through `HOME`. All pass on PowerShell 7.6 on Ubuntu; they have not been run on Windows or a RHEL-family host.
 - The certificate validator records why it rejected a certificate (untrusted root with the chain status, or a host name missing from the certificate) and the transport error ends with `Certificate rejected: <reason>` (D25). Unreleased, with the vault selection work.
@@ -148,7 +148,7 @@
 
 ## 7. Vault Selection (built, unreleased)
 
-Built after 3.0.0 from the design recorded in 1.2.0 of this file. Decisions D22 to D24 hold the reasoning; this section records what exists and what was learned.
+Built for 3.0.1 from the design recorded in 1.2.0 of this file. Decisions D22 to D24 hold the reasoning; this section records what exists and what was learned.
 
 **What exists**
 
@@ -187,6 +187,7 @@ Report the probe output, the verbose line from step 6, and whether steps 7 and 8
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.9.0 | 10-OCT-26 | Brought current to module v3.0.1: vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access. |
 | 1.11.0 | 09-OCT-26 | `AriaApiToken` provider recorded (D26, open item 13, section 8 verification plan). |
 | 1.10.0 | 08-OCT-26 | Test suites added under `tests/` (local server, vault selection, unattended). D25: certificate rejection reasons in the transport error. Open item 7 rewritten with the Linux finding. |
 | 1.9.0 | 08-OCT-26 | Vault selection recorded as built and unreleased (D22 to D24, section 7 rewritten, open items 11 and 12). Open item 5 updated for the Ubuntu KeePass result. |

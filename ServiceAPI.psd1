@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '3.0.0'
+ModuleVersion = '3.0.1'
 
 # Supported PSEditions: Windows PowerShell 5.1 (Desktop) and PowerShell 7 (Core, Windows and Linux)
 CompatiblePSEditions = 'Desktop', 'Core'
@@ -107,7 +107,8 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '3.0.0 | 08OCT26 | Linux support. The module now loads on Windows and on Linux. RHEL-family Linux is the
+        ReleaseNotes = '3.0.1 | 10OCT26 | Adds vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access.
+3.0.0 | 08OCT26 | Linux support. The module now loads on Windows and on Linux. RHEL-family Linux is the
                   target (RHEL, AlmaLinux, Rocky, Fedora, CentOS, Oracle Linux); other Linux distributions load
                   with a warning, and macOS is refused. Phase 0.6 of the loader detects the platform and sets
                   ServiceApiPlatform. On Linux the service registry (services.json) lives in the XDG config
