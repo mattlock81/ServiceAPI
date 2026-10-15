@@ -21,7 +21,7 @@ function Register-CustomService {
         When -Persistent is not specified, the registration is session-only and lost on module
         reload.
 
-        Supported SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
+        Supported SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken, PingFederate.
 
     .PARAMETER ServiceName
         The name to identify the service (e.g., custom-api, github, googleapi).
@@ -42,7 +42,11 @@ function Register-CustomService {
         token acquisition and refresh without requiring the provider to be named on each call.
         Accepted values: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken. AriaApiToken exchanges
         an Aria API token (stored with Set-ServiceCredential -AuthType Token -Label apitoken)
-        for a bearer with no browser, so it suits unattended runs.
+        for a bearer with no browser, so it suits unattended runs. PingFederate signs in with the
+        OpenID Connect authorization code grant (see -OidcAuthority, -OidcScope and
+        -OidcRedirectUri); the OAuth client is stored with
+        Set-ServiceCredential -AuthType Basic -Label oidcclient (user name = client id,
+        password = client secret).
 
     .PARAMETER SSODomain
         Optional. Only meaningful when -SSOProvider is 'Aria'. The domain to submit
@@ -55,6 +59,22 @@ function Register-CustomService {
         appears after 'service=tenant:' in the portal login redirect. Required by AriaOidc to
         open the correct tenant portal during browser login. Optional for AriaApiToken, where it
         enables the oauth-tenant exchange shape.
+
+    .PARAMETER OidcAuthority
+        Optional. Used by the PingFederate provider. The PingFederate base URL that issues the
+        token (for example https://pf.example.com:9031). Defaults to -BaseUrl, so set it when
+        the API the bearer is sent to is on a different host from PingFederate.
+
+    .PARAMETER OidcScope
+        Optional. Used by the PingFederate provider. The scopes to request, separated by spaces
+        or commas. 'openid' is always added. Defaults to 'openid profile ad'. Catalogued scopes:
+        ad, app, brf, camkeys, coi, eci, lac, profile, rel (see Resolve-PingFederateScope); any
+        other scope is sent with a warning.
+
+    .PARAMETER OidcRedirectUri
+        Optional. Used by the PingFederate provider. The redirect URI registered on the
+        PingFederate client. It must be an http loopback address (127.0.0.1 or localhost) and
+        must match the registration exactly. Defaults to http://127.0.0.1:47812/callback.
 
     .PARAMETER ProbeEndpoint
         Optional. A relative endpoint (for example 'iaas/api/projects?$top=1') that returns 2xx
@@ -92,12 +112,21 @@ function Register-CustomService {
         Registers an Aria service and names the cheap read-only endpoint used to test whether its
         bearer is valid. An AriaOidc service defaults to this value when -ProbeEndpoint is omitted.
 
+    .EXAMPLE
+        Register-CustomService -ServiceName ping -BaseUrl 'https://pf.example.com:9031' -SSOProvider PingFederate -OidcScope 'openid profile ad rel' -Persistent
+        Registers a PingFederate service. The OAuth client is then stored with
+        Set-ServiceCredential -Service ping -AuthType Basic -Label oidcclient.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.7.0
-        Date        : 08-OCT-26
+        Version     : 2.8.0
+        Date        : 15-OCT-26
 
         CHANGE LOG
+        2.8.0 | 15OCT26 | Added PingFederate to the -SSOProvider ValidateSet, and the optional
+                          -OidcAuthority, -OidcScope and -OidcRedirectUri parameters, stored in the
+                          registry entry and persisted via Write-ServiceConfig. Used only by the
+                          PingFederate provider.
         2.7.0 | 08OCT26 | Added AriaApiToken to the -SSOProvider ValidateSet. -SSOTenant is accepted for AriaOidc and
                           AriaApiToken.
         2.6.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
@@ -151,12 +180,18 @@ function Register-CustomService {
             'Content-Type' = 'application/json'
         },
 
-        [ValidateSet('GCloud', 'AzureCLI', 'Aria', 'AriaOidc', 'AriaApiToken')]
+        [ValidateSet('GCloud', 'AzureCLI', 'Aria', 'AriaOidc', 'AriaApiToken', 'PingFederate')]
         [string]$SSOProvider,
 
         [string]$SSODomain,
 
         [string]$SSOTenant,
+
+        [string]$OidcAuthority,
+
+        [string]$OidcScope,
+
+        [string]$OidcRedirectUri,
 
         [string]$ProbeEndpoint,
 
@@ -207,6 +242,19 @@ function Register-CustomService {
         Write-Verbose "SSO tenant [$SSOTenant] registered for [$ServiceName-$Environment]."
     }
 
+    if ($OidcAuthority -or $OidcScope -or $OidcRedirectUri) {
+        if ($SSOProvider -ne 'PingFederate') {
+            Write-Warning "-OidcAuthority, -OidcScope and -OidcRedirectUri are only used by the PingFederate SSO provider and will be stored but ignored for provider [$SSOProvider]."
+        }
+        if ($OidcAuthority) {
+            if ($OidcAuthority -notmatch '^https?://') { throw "OidcAuthority must start with http:// or https://" }
+            $entry['OidcAuthority'] = $OidcAuthority.TrimEnd('/')
+        }
+        if ($OidcScope)       { $entry['OidcScope']       = (($OidcScope -split '[\s,]+') | Where-Object { $_ }) -join ' ' }
+        if ($OidcRedirectUri) { $entry['OidcRedirectUri'] = $OidcRedirectUri }
+        Write-Verbose "OIDC settings registered for [$ServiceName-$Environment]."
+    }
+
     if ($ProbeEndpoint) {
         $entry['ProbeEndpoint'] = $ProbeEndpoint.TrimStart('/')
         Write-Verbose "Probe endpoint [$($entry['ProbeEndpoint'])] registered for [$ServiceName-$Environment]."
@@ -231,6 +279,9 @@ function Register-CustomService {
         if ($SSODomain)   { $writeParams['SSODomain']   = $SSODomain }
         if ($SSOTenant)   { $writeParams['SSOTenant']   = $SSOTenant }
         if ($ProbeEndpoint) { $writeParams['ProbeEndpoint'] = $entry['ProbeEndpoint'] }
+        if ($entry.ContainsKey('OidcAuthority'))   { $writeParams['OidcAuthority']   = $entry['OidcAuthority'] }
+        if ($entry.ContainsKey('OidcScope'))       { $writeParams['OidcScope']       = $entry['OidcScope'] }
+        if ($entry.ContainsKey('OidcRedirectUri')) { $writeParams['OidcRedirectUri'] = $entry['OidcRedirectUri'] }
 
         Write-ServiceConfig @writeParams
         Write-Verbose "Persisted [$ServiceName-$Environment] to services.json."

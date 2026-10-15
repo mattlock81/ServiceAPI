@@ -35,7 +35,7 @@ function Get-ServiceCredential {
 
     .PARAMETER AuthType
         The authentication type to resolve. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken, PingFederate.
 
     .PARAMETER Label
         The vault label to retrieve. Defaults to 'default'.
@@ -86,10 +86,12 @@ function Get-ServiceCredential {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.10.0
-        Date        : 08-OCT-26
+        Version     : 2.11.0
+        Date        : 15-OCT-26
 
         CHANGE LOG
+        2.11.0 | 15OCT26 | PingFederate support: a stale PingFederate token is refreshed through Set-ServiceCredential,
+                          as AriaOidc is.
         2.10.0 | 08OCT26 | AriaApiToken support: a stale AriaApiToken token is refreshed through Set-ServiceCredential, as
                           AriaOidc is, and -Vault is passed to the SSO refresh so the API token is read from the chosen vault.
         2.9.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves), passed to Resolve-VaultCredential, the QueryParam
@@ -245,10 +247,10 @@ function Get-ServiceCredential {
             # Refresh if within 5 minutes of expiry or already expired
             $ssoStale = [DateTime]::UtcNow -ge $entry.ExpiresAt.AddMinutes(-5)
 
-            if ($ssoStale -and $entry.Provider -in @('AriaOidc', 'AriaApiToken')) {
-                # AriaOidc and AriaApiToken own their refresh cycle in Set-ServiceCredential. AriaOidc
-                # reuses the cached refresh token and falls back to a browser login; AriaApiToken
-                # exchanges the stored API token again, with no interaction.
+            if ($ssoStale -and $entry.Provider -in @('AriaOidc', 'AriaApiToken', 'PingFederate')) {
+                # AriaOidc, AriaApiToken and PingFederate own their refresh cycle in Set-ServiceCredential.
+                # AriaOidc and PingFederate reuse the cached refresh token and fall back to a browser
+                # login; AriaApiToken exchanges the stored API token again, with no interaction.
                 Write-Verbose "SSO token for [$key] is stale. Refreshing via provider [$($entry.Provider)]."
                 Set-ServiceCredential -Service $Service -Environment $Environment -AuthType SSO -Force -Vault $Vault
                 $entry = $global:ServiceSSOTokens[$key]

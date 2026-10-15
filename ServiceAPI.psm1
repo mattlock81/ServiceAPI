@@ -219,6 +219,12 @@ foreach ($serviceName in $persistedServices.Keys) {
             $regParams['ProbeEndpoint'] = $entry.ProbeEndpoint
         }
 
+        foreach ($oidcField in 'OidcAuthority', 'OidcScope', 'OidcRedirectUri') {
+            if ($entry.ContainsKey($oidcField) -and -not [string]::IsNullOrWhiteSpace($entry[$oidcField])) {
+                $regParams[$oidcField] = $entry[$oidcField]
+            }
+        }
+
         Register-CustomService @regParams
         Write-Verbose "Loaded service [$serviceName-$env] from services.json."
     }
