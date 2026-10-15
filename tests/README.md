@@ -12,6 +12,8 @@ Windows for that reason. Nothing here needs a real service or credentials.
 | `LocalServer/` (PingFederate) | The `PingFederate` provider against `pingfed_mock.py` (ports 18090 to 18093): scope catalogue, discovery and its fallback, registration persistence, browser login, silent refresh, client authentication fallback, no refresh token, nonce and secret failures, the redirect listener. The browser and the vault are replaced inside the module, so no `SecretManagement` is needed | Python 3 |
 | `Vault/` | Vault selection: saved default, `-Vault`, the recorded-vault rule, scoped reads of a duplicate secret name, the legacy index migration, and unattended behaviour with no vault, one vault, two vaults and a vault that is no longer registered | `SecretManagement` and `SecretManagement.KeePass` |
 
+`PingFederate-Live-Test-Plan.md` is a runbook for an AI tool (or a person) to test the PingFederate provider against a real server, with human steps marked and a report template. It needs a reachable PingFederate and a confidential client; it prints no tokens, secrets or claim values.
+
 ## Run
 
 ```bash
