@@ -365,7 +365,7 @@ For Token Auth, resolution order is:
 2. Vault lookup via `Resolve-VaultCredential`
 3. Interactive prompt
 
-For SSO, a cached token is returned if valid. If expired or absent, `Invoke-SSOProviderToken` acquires a new token from the registered provider (`GCloud`, `AzureCLI`, or `Aria`). For `Aria`, refresh additionally resolves the underlying domain-account credential via a nested `Get-ServiceCredential -AuthType Basic -Label ssoidentity` call and the domain via registry `SSODomain` or the local domain-joined system. `AriaOidc` is acquired by `Invoke-AriaOidcLogin` instead (through `Set-ServiceCredential`), which exchanges the cached refresh token or opens a browser login.
+For SSO, a cached token is returned if valid. If expired or absent, `Invoke-SSOProviderToken` acquires a new token from the registered provider (`GCloud`, `AzureCLI`, or `Aria`). For `Aria`, refresh additionally resolves the underlying domain-account credential via a nested `Get-ServiceCredential -AuthType Basic -Label ssoidentity` call and the domain via registry `SSODomain` or the local domain-joined system. `AriaOidc` is acquired by `Invoke-AriaOidcLogin` instead (through `Set-ServiceCredential`), which exchanges the cached refresh token or opens a browser login. `AriaApiToken` is acquired by `Invoke-AriaApiTokenLogin` (API token from the vault label `apitoken`), and `PingFederate` by `Invoke-PingFederateLogin` (OAuth client from the Basic label `oidcclient`, then a silent refresh or a browser login); both also go through `Set-ServiceCredential`.
 
 `QueryParam` reuses the Basic Auth resolution chain above in full (recursing internally with `-AuthType Basic`), then decodes the resolved credential into a plain `UserName`/`Password` object instead of building a header — see [Query Parameter Authentication](#query-parameter-authentication).
 
@@ -504,6 +504,7 @@ ServiceAPI/
     │   ├── ReadVaultConfig.ps1
     │   ├── ReadVaultIndex.ps1
     │   ├── RemoveVaultIndex.ps1
+    │   ├── ResolvePingFederateScope.ps1
     │   ├── ResolveServiceVault.ps1
     │   ├── ResolveVaultCredential.ps1
     │   ├── SaveVaultIndex.ps1
@@ -512,6 +513,7 @@ ServiceAPI/
     │   ├── TestServiceApiInteractive.ps1
     │   ├── TestServiceBearer.ps1
     │   ├── WaitAriaCourierToken.ps1
+    │   ├── WaitPingFederateCallback.ps1
     │   ├── WriteServiceApiHandledError.ps1
     │   ├── WriteServiceConfig.ps1
     │   ├── WriteVaultConfig.ps1
@@ -531,7 +533,7 @@ User data files are stored outside the module directory and are never committed 
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
+| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant, ProbeEndpoint, OidcAuthority, OidcScope and OidcRedirectUri per service/environment |
 | `vault-config.json` | Same folder as `credential-index.json` | The saved default vault name (created by `Set-ServiceVault`) |
 | `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` (Windows), `~/.local/share/ServiceAPI/` (Linux, or `$XDG_DATA_HOME`) | Machine-local vault label index — tracks which named credentials exist per service key |
 
