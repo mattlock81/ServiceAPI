@@ -54,10 +54,12 @@ function Write-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.5.1
-        Date        : 08-OCT-26
+        Version     : 1.6.0
+        Date        : 15-OCT-26
 
         CHANGE LOG
+        1.6.0 | 15OCT26 | Added optional -OidcAuthority, -OidcScope and -OidcRedirectUri, persisted
+                          to the services.json entry when supplied. Used by the PingFederate provider.
         1.5.1 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.5.0 | 08OCT26 | Linux support: restrict the file and directory to the owner (700/600) through
                           Set-ServiceApiSecureMode.
@@ -85,7 +87,10 @@ function Write-ServiceConfig {
         [string]$SSOProvider,
         [string]$SSODomain,
         [string]$SSOTenant,
-        [string]$ProbeEndpoint
+        [string]$ProbeEndpoint,
+        [string]$OidcAuthority,
+        [string]$OidcScope,
+        [string]$OidcRedirectUri
     )
 
     $configDir  = $script:ServiceApiConfigPath
@@ -119,6 +124,15 @@ function Write-ServiceConfig {
     }
     if (-not [string]::IsNullOrWhiteSpace($ProbeEndpoint)) {
         $entry['ProbeEndpoint'] = $ProbeEndpoint
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OidcAuthority)) {
+        $entry['OidcAuthority'] = $OidcAuthority
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OidcScope)) {
+        $entry['OidcScope'] = $OidcScope
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OidcRedirectUri)) {
+        $entry['OidcRedirectUri'] = $OidcRedirectUri
     }
 
     $current[$ServiceName][$Environment] = $entry

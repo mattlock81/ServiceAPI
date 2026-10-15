@@ -37,8 +37,18 @@ function Wait-AriaCourierToken {
     .PARAMETER TimeoutSeconds
         Maximum time to wait. Defaults to 300.
 
+    .PARAMETER PortalUrl
+        Optional. The Aria portal URL. When supplied, it is opened in the default browser once the
+        listener is accepting, with the sign-in message; if no browser can be launched (headless
+        Linux) the URL is printed instead, to be opened in a browser on this same host.
+
+    .PARAMETER InstallUrl
+        Optional. The loopback URL that serves the courier userscript. Shown in the first-time
+        message when -PortalUrl is supplied.
+
     .PARAMETER AfterStart
-        Optional script block run after the listener starts.
+        Optional script block run after the listener starts. A script block made with
+        GetNewClosure() cannot call the module's private functions; use -PortalUrl to open a browser.
 
     .OUTPUTS
         PSCustomObject - the accepted payload (origin, access_token, refresh_token,
@@ -67,10 +77,15 @@ function Wait-AriaCourierToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.1.0 | 16OCT26 | Added -PortalUrl and -InstallUrl: the listener now opens the browser itself
+                          (Open-ServiceApiBrowser) and prints the sign-in messages. The caller used to do
+                          this in an -AfterStart script block made with GetNewClosure(), which could not
+                          see the module's private functions, so the browser path failed with "The term
+                          'Open-ServiceApiBrowser' is not recognized". -AfterStart is unchanged.
         1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
@@ -94,6 +109,10 @@ function Wait-AriaCourierToken {
         [ValidateRange(30, 1800)]
         [int]$TimeoutSeconds = 300,
 
+        [string]$PortalUrl,
+
+        [string]$InstallUrl,
+
         [scriptblock]$AfterStart
     )
 
@@ -110,6 +129,17 @@ function Wait-AriaCourierToken {
     $deadline    = (Get-Date).AddSeconds($TimeoutSeconds)
 
     try {
+        if ($PortalUrl) {
+            # Opened here rather than in an -AfterStart script block made with GetNewClosure():
+            # such a closure cannot see the module's private functions.
+            Write-Host "Aria login: sign in to the portal that is opening. Waiting up to $TimeoutSeconds seconds..." -ForegroundColor Cyan
+            if ($InstallUrl) {
+                Write-Host "First time on this browser? Install the courier by opening $InstallUrl, then reload the portal tab." -ForegroundColor Cyan
+            }
+            if (-not (Open-ServiceApiBrowser -Url $PortalUrl)) {
+                Write-Host "No browser could be opened on this host. Open $PortalUrl in a browser on this same host (the courier posts to 127.0.0.1)." -ForegroundColor Yellow
+            }
+        }
         if ($AfterStart) { & $AfterStart }
 
         while ($true) {

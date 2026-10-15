@@ -49,10 +49,11 @@ function Invoke-SSOProviderToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.4.0
-        Date        : 08-OCT-26
+        Version     : 1.5.0
+        Date        : 15-OCT-26
 
         CHANGE LOG
+        1.5.0 | 15OCT26 | Added an explicit PingFederate case that points to Invoke-PingFederateLogin.
         1.4.0 | 08OCT26 | Added an explicit AriaApiToken case that points to Invoke-AriaApiTokenLogin.
         1.3.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
@@ -180,8 +181,12 @@ function Invoke-SSOProviderToken {
             throw "SSO provider [AriaApiToken] is acquired via Invoke-AriaApiTokenLogin, not this function."
         }
 
+        'PingFederate' {
+            throw "SSO provider [PingFederate] is acquired via Invoke-PingFederateLogin, not this function."
+        }
+
         default {
-            throw "Unknown SSO provider [$Provider]. Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken."
+            throw "Unknown SSO provider [$Provider]. Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken, PingFederate."
         }
     }
 

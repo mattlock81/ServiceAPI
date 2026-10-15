@@ -61,13 +61,21 @@ function Set-ServiceCredential {
         process needs no interaction. Register the service with -SSOProvider AriaApiToken
         (and optionally -SSOTenant).
 
+        The PingFederate provider signs in with the OpenID Connect authorization code grant for a
+        confidential client. The OAuth client is read from a Basic credential under the label
+        'oidcclient' (user name = client id, password = client secret), so the first SSO call can
+        bootstrap it through the usual prompt. The browser opens on a loopback listener for the
+        redirect URI registered on the client (Register-CustomService -OidcRedirectUri); a cached
+        refresh token, when PingFederate issues one, is then exchanged silently. The refresh
+        token is held in memory only. The first login is interactive.
+
     .PARAMETER Service
         The API service name (e.g., jira, confluence, google).
         Required for Token and SSO storage. Optional for Basic Auth global storage.
 
     .PARAMETER AuthType
         The authentication type to store. Accepted values: Basic, Token, SSO.
-        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken.
+        Defaults to Basic. SSO providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken, PingFederate.
 
     .PARAMETER Credential
         A PSCredential object for Basic Auth storage. If omitted, prompts interactively.
@@ -115,10 +123,14 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.11.0
-        Date        : 08-OCT-26
+        Version     : 2.12.0
+        Date        : 15-OCT-26
 
         CHANGE LOG
+        2.12.0 | 15OCT26 | PingFederate support: new SSO provider branch. The OAuth client is read with
+                          Get-PingFederateClient (Basic label oidcclient, from the chosen vault) and
+                          signed in by Invoke-PingFederateLogin. The cache entry also keeps the
+                          granted scope, the client authentication method and the id_token claims.
         2.11.0 | 08OCT26 | AriaApiToken support: new SSO provider branch. The API token is read with Get-AriaApiToken
                           (label apitoken, from the chosen vault), exchanged by Invoke-AriaApiTokenLogin with the bearer chosen by
                           test, and cached with its expiry and the exchange shape that worked.
@@ -300,7 +312,7 @@ function Set-ServiceCredential {
                 throw "SSO provider is required. Register one via Register-CustomService -SSOProvider."
             }
 
-            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken" -ForegroundColor Cyan
+            Write-Host "Supported providers: GCloud, AzureCLI, Aria, AriaOidc, AriaApiToken, PingFederate" -ForegroundColor Cyan
             $provider = Read-Host "Enter provider name"
 
             if ([string]::IsNullOrWhiteSpace($provider)) {
@@ -457,6 +469,56 @@ function Set-ServiceCredential {
             }
 
             Write-Verbose "Stored SSO token for [$apiKey] via provider [AriaApiToken] ($($apiLogin.ExchangeMode), $($apiLogin.BearerMode) bearer). Expires at [$($global:ServiceSSOTokens[$apiKey].ExpiresAt)] UTC."
+            return
+
+        } elseif ($provider -eq 'PingFederate') {
+
+            # Resolve the issuer, scopes and redirect URI from the registry
+            $pingEntry = $null
+            if ($global:ServiceRegistry.ContainsKey($Service) -and
+                $global:ServiceRegistry[$Service].ContainsKey($Environment)) {
+                $pingEntry = $global:ServiceRegistry[$Service][$Environment]
+            }
+            if (-not $pingEntry -or [string]::IsNullOrWhiteSpace($pingEntry.BaseUrl)) {
+                throw "Could not resolve BaseUrl for [$Service-$Environment]. Register the service first."
+            }
+
+            # The OAuth client lives in the vault under the Basic label 'oidcclient' (user name =
+            # client id, password = client secret), mirroring the Aria 'ssoidentity' lookup. It is
+            # read on every login and not cached.
+            $pingClient = Get-PingFederateClient -Service $Service -Environment $Environment -Vault $Vault
+
+            $pingKey    = New-ServiceKey -Service $Service -Environment $Environment
+            $pingCached = $null
+            if ($global:ServiceSSOTokens.ContainsKey($pingKey)) {
+                $pingCached = $global:ServiceSSOTokens[$pingKey]
+            }
+
+            $pingParams = @{
+                Authority    = $(if ($pingEntry.OidcAuthority) { $pingEntry.OidcAuthority } else { $pingEntry.BaseUrl })
+                ClientId     = $pingClient.ClientId
+                ClientSecret = $pingClient.ClientSecret
+            }
+            if ($pingEntry.OidcScope)       { $pingParams['Scope']       = $pingEntry.OidcScope }
+            if ($pingEntry.OidcRedirectUri) { $pingParams['RedirectUri'] = $pingEntry.OidcRedirectUri }
+            if ($pingCached) {
+                if ($pingCached.RefreshToken) { $pingParams['RefreshToken'] = $pingCached.RefreshToken }
+                if ($pingCached.AuthMode)     { $pingParams['AuthMode']     = $pingCached.AuthMode }
+            }
+
+            $pingLogin = Invoke-PingFederateLogin @pingParams
+
+            $global:ServiceSSOTokens[$pingKey] = @{
+                Token        = $pingLogin.Bearer
+                RefreshToken = $pingLogin.RefreshToken
+                ExpiresAt    = [DateTime]::UtcNow.AddSeconds($pingLogin.ExpiresIn)
+                Provider     = $provider
+                AuthMode     = $pingLogin.AuthMode
+                Scope        = $pingLogin.Scope
+                Claims       = $(if ($pingLogin.Claims) { $pingLogin.Claims } elseif ($pingCached) { $pingCached.Claims } else { $null })
+            }
+
+            Write-Verbose "Stored SSO token for [$pingKey] via provider [PingFederate] ($($pingLogin.Source), $($pingLogin.AuthMode) client authentication). Expires at [$($global:ServiceSSOTokens[$pingKey].ExpiresAt)] UTC."
             return
 
         } else {

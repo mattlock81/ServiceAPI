@@ -10,7 +10,7 @@
 
 ServiceAPI is a PowerShell module that provides a unified REST API framework for interacting with multiple services. It supports Basic Auth, static Token, SSO OAuth, QueryParam (credential delivered via URL query string rather than a header), and None (unauthenticated) authentication modes via a persistent service registry pattern, with optional credential persistence through Microsoft SecretManagement vault integration.
 
-SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener), and `AriaApiToken` (Aria / VCF Automation via a self-service API token exchanged without a browser, for unattended use).
+SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener), `AriaApiToken` (Aria / VCF Automation via a self-service API token exchanged without a browser, for unattended use), and `PingFederate` (OpenID Connect authorization code sign-in for a confidential PingFederate client).
 
 Services are registered once with a BaseUrl and stored in a user-scoped `services.json` file. Credentials are resolved automatically from the vault, from in-memory global state, or via interactive prompt — in that order. All public functions share a unified `-AuthType` parameter with tab completion, and the `-Service` parameter tab-completes from the live registry.
 
@@ -114,7 +114,7 @@ Register-CustomService -ServiceName mycloud -BaseUrl 'https://api.example.com' -
 Invoke-APIRequest -Service mycloud -Endpoint 'projects' -AuthType SSO
 ```
 
-Supported providers: `GCloud`, `AzureCLI`, `Aria`, `AriaOidc`. SSO tokens are cached in `$global:ServiceSSOTokens` with an expiry timestamp and refreshed automatically when within 5 minutes of expiry — never stored in the vault, regardless of provider.
+Supported providers: `GCloud`, `AzureCLI`, `Aria`, `AriaOidc`, `AriaApiToken`, `PingFederate`. SSO tokens are cached in `$global:ServiceSSOTokens` with an expiry timestamp and refreshed automatically when within 5 minutes of expiry — never stored in the vault, regardless of provider.
 
 #### Aria (VMware Aria Automation)
 
@@ -179,6 +179,45 @@ To see which shapes and which bearer a tenant accepts (statuses only, no tokens 
 ```
 
 The API token acts as the identity that created it, so protect it like a password and prefer a vault such as `automation`. These call shapes come from the Aria design notes and are proven against a local emulation only; they have not yet been verified against a real tenant.
+
+#### PingFederate (OpenID Connect authorization code, confidential client)
+
+Signs in to a PingFederate server with the authorization code grant. The client is a confidential client (client id and secret, PKCE not used). The first login opens the browser; PingFederate redirects back to a loopback listener on `127.0.0.1`, and the code is exchanged at the token endpoint with the client secret. When the client is allowed the refresh token grant, the cached refresh token is exchanged silently from then on and the browser opens again only when that session has ended. The refresh token is held in memory only and never stored in the vault. The first login is interactive, so this provider is not for unattended runs; a non-interactive session that needs a browser login stops with a clear message instead of waiting.
+
+```powershell
+# OidcAuthority is the PingFederate base URL; it defaults to -BaseUrl, so set it when the API
+# that receives the bearer is on a different host. OidcScope and OidcRedirectUri are optional.
+Register-CustomService -ServiceName ping -BaseUrl 'https://pf.example.com:9031' -SSOProvider PingFederate `
+    -OidcScope 'openid profile ad rel' -OidcRedirectUri 'http://127.0.0.1:47812/callback' -Persistent
+
+# Store the OAuth client once: user name = client id, password = client secret.
+Set-ServiceCredential -Service ping -AuthType Basic -Label oidcclient -Vault automation
+
+Invoke-APIRequest -Service ping -Endpoint 'idp/userinfo.openid' -AuthType SSO
+```
+
+Register the redirect URI on the PingFederate client exactly as given to `-OidcRedirectUri` (default `http://127.0.0.1:47812/callback`). It must be an `http` loopback address; do not run another listener on that port at the same time. `localhost` also works, but then the browser must resolve it to `127.0.0.1`.
+
+**Scopes.** `openid` is always sent. The default is `openid profile ad`. Known scopes and the claims they release:
+
+| Scope | Claims |
+|---|---|
+| `ad` | `groups` |
+| `app`, `brf`, `camkeys`, `coi`, `eci`, `lac` | the claim of the same name |
+| `profile` | `displayName`, `dutyOrg`, `email`, `employeeType`, `givenName`, `nationality`, `org`, `preferred_username`, `securityClearance` |
+| `rel` | `uid` |
+
+A scope outside this list is sent with a warning, and a scope PingFederate does not grant (the client may not request it) is reported with a warning that names it. The granted scopes and the id_token claims are kept in the cached token entry, in `$global:ServiceSSOTokens` under `Scope` and `Claims`.
+
+**Validation.** Endpoints come from `/.well-known/openid-configuration`, falling back to `/as/authorization.oauth2`, `/as/token.oauth2` and `/idp/userinfo.openid`. A discovered endpoint on a different host than the authority is ignored. The client authenticates with `client_secret_basic` and falls back to `client_secret_post` on `invalid_client`; the method that worked is remembered. The id_token's issuer, audience, expiry and (for a browser login) nonce are checked; its signature is not verified, because it arrives directly from the token endpoint over TLS (OpenID Connect Core 3.1.3.7).
+
+To see what PingFederate actually granted (names only, no tokens or claim values are printed):
+
+```powershell
+& (Get-Module ServiceAPI) { Invoke-PingFederateProbe -Service ping }
+```
+
+The provider is proven against a local mock PingFederate only (`tests/LocalServer/Invoke-PingFederateTests.ps1`); it has not yet been verified against a real server.
 
 ### Certificate-Aware Transport
 
@@ -326,7 +365,7 @@ For Token Auth, resolution order is:
 2. Vault lookup via `Resolve-VaultCredential`
 3. Interactive prompt
 
-For SSO, a cached token is returned if valid. If expired or absent, `Invoke-SSOProviderToken` acquires a new token from the registered provider (`GCloud`, `AzureCLI`, or `Aria`). For `Aria`, refresh additionally resolves the underlying domain-account credential via a nested `Get-ServiceCredential -AuthType Basic -Label ssoidentity` call and the domain via registry `SSODomain` or the local domain-joined system. `AriaOidc` is acquired by `Invoke-AriaOidcLogin` instead (through `Set-ServiceCredential`), which exchanges the cached refresh token or opens a browser login.
+For SSO, a cached token is returned if valid. If expired or absent, `Invoke-SSOProviderToken` acquires a new token from the registered provider (`GCloud`, `AzureCLI`, or `Aria`). For `Aria`, refresh additionally resolves the underlying domain-account credential via a nested `Get-ServiceCredential -AuthType Basic -Label ssoidentity` call and the domain via registry `SSODomain` or the local domain-joined system. `AriaOidc` is acquired by `Invoke-AriaOidcLogin` instead (through `Set-ServiceCredential`), which exchanges the cached refresh token or opens a browser login. `AriaApiToken` is acquired by `Invoke-AriaApiTokenLogin` (API token from the vault label `apitoken`), and `PingFederate` by `Invoke-PingFederateLogin` (OAuth client from the Basic label `oidcclient`, then a silent refresh or a browser login); both also go through `Set-ServiceCredential`.
 
 `QueryParam` reuses the Basic Auth resolution chain above in full (recursing internally with `-AuthType Basic`), then decodes the resolved credential into a plain `UserName`/`Password` object instead of building a header — see [Query Parameter Authentication](#query-parameter-authentication).
 
@@ -439,6 +478,8 @@ ServiceAPI/
     │   ├── ConvertVaultSecretToCredential.ps1
     │   ├── GetAriaApiToken.ps1
     │   ├── GetAriaCourierScript.ps1
+    │   ├── GetPingFederateClient.ps1
+    │   ├── GetPingFederateEndpoint.ps1
     │   ├── GetServiceProbeEndpoint.ps1
     │   ├── InitialiseServiceConfig.ps1
     │   ├── InitialiseVaultIndex.ps1
@@ -449,6 +490,9 @@ ServiceAPI/
     │   ├── InvokeAriaOidcProbe.ps1
     │   ├── InvokeAriaOidcRefresh.ps1
     │   ├── InvokeCredentialPrompt.ps1
+    │   ├── InvokePingFederateLogin.ps1
+    │   ├── InvokePingFederateProbe.ps1
+    │   ├── InvokePingFederateTokenRequest.ps1
     │   ├── InvokeServiceApiHttpRequest.ps1
     │   ├── InvokeServiceSsoRetry.ps1
     │   ├── InvokeSSOProviderToken.ps1
@@ -460,6 +504,7 @@ ServiceAPI/
     │   ├── ReadVaultConfig.ps1
     │   ├── ReadVaultIndex.ps1
     │   ├── RemoveVaultIndex.ps1
+    │   ├── ResolvePingFederateScope.ps1
     │   ├── ResolveServiceVault.ps1
     │   ├── ResolveVaultCredential.ps1
     │   ├── SaveVaultIndex.ps1
@@ -468,6 +513,7 @@ ServiceAPI/
     │   ├── TestServiceApiInteractive.ps1
     │   ├── TestServiceBearer.ps1
     │   ├── WaitAriaCourierToken.ps1
+    │   ├── WaitPingFederateCallback.ps1
     │   ├── WriteServiceApiHandledError.ps1
     │   ├── WriteServiceConfig.ps1
     │   ├── WriteVaultConfig.ps1
@@ -487,7 +533,7 @@ User data files are stored outside the module directory and are never committed 
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant and ProbeEndpoint per service/environment |
+| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant, ProbeEndpoint, OidcAuthority, OidcScope and OidcRedirectUri per service/environment |
 | `vault-config.json` | Same folder as `credential-index.json` | The saved default vault name (created by `Set-ServiceVault`) |
 | `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` (Windows), `~/.local/share/ServiceAPI/` (Linux, or `$XDG_DATA_HOME`) | Machine-local vault label index — tracks which named credentials exist per service key |
 
@@ -497,7 +543,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| Unreleased | 09Oct26 | AriaApiToken SSO provider (Register-CustomService 2.7.0, Set-ServiceCredential 2.11.0, Get-ServiceCredential 2.10.0, Invoke-SSOProviderToken 1.4.0, Get-ServiceProbeEndpoint 1.1.0; new private Invoke-AriaApiTokenExchange, Invoke-AriaApiTokenLogin, Invoke-AriaApiTokenProbe and Get-AriaApiToken 1.0.0). Tested against a local Aria emulation only; not yet verified against a tenant. Earlier unreleased work, 08Oct26: Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
+| Unreleased | 16Oct26 | Fixed the AriaOidc browser login, which failed with "The term 'Open-ServiceApiBrowser' is not recognized": the portal was opened from an `-AfterStart` script block made with `GetNewClosure()`, which cannot see the module's private functions. `Wait-AriaCourierToken` 1.1.0 now opens the browser itself (new `-PortalUrl` and `-InstallUrl`); `Invoke-AriaOidcLogin` 1.4.1. New test `tests/LocalServer/Invoke-AriaOidcLoginTests.ps1` (reproduced the failure before the fix, passes after). Earlier unreleased work, 15Oct26: PingFederate SSO provider: OpenID Connect authorization code sign-in for a confidential client, with silent refresh, discovery, client authentication fallback and id_token checks. New parameters `-OidcAuthority`, `-OidcScope` and `-OidcRedirectUri` on Register-CustomService 2.8.0, persisted by Write-ServiceConfig 1.6.0 and Read-ServiceConfig 1.5.0 and forwarded by the Phase 5 load; Set-ServiceCredential 2.12.0, Get-ServiceCredential 2.11.0, Invoke-SSOProviderToken 1.5.0. New private Invoke-PingFederateLogin, Invoke-PingFederateTokenRequest, Invoke-PingFederateProbe, Get-PingFederateEndpoint, Get-PingFederateClient, Resolve-PingFederateScope and Wait-PingFederateCallback 1.0.0. Tested against a local mock PingFederate only; not yet verified against a real server. Earlier unreleased work, 09Oct26: AriaApiToken SSO provider (Register-CustomService 2.7.0, Set-ServiceCredential 2.11.0, Get-ServiceCredential 2.10.0, Invoke-SSOProviderToken 1.4.0, Get-ServiceProbeEndpoint 1.1.0; new private Invoke-AriaApiTokenExchange, Invoke-AriaApiTokenLogin, Invoke-AriaApiTokenProbe and Get-AriaApiToken 1.0.0). Tested against a local Aria emulation only; not yet verified against a tenant. Earlier unreleased work, 08Oct26: Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
 | 3.0.1 | 10Oct26 | Release of vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access. |
 | 3.0.0 | 08Oct26 | Linux support. Phase 0.6 platform detection (Windows or Linux; RHEL-family is the target, other Linux warns, macOS refused). XDG data locations and owner-only permissions on Linux (new private Set-ServiceApiSecureMode 1.0.0, used by Initialise-ServiceConfig 1.3.0, Initialise-VaultIndex 1.2.0, Write-ServiceConfig 1.5.0, Write-VaultIndex 1.2.0, Remove-VaultIndex 1.1.0). SecureString conversion no longer uses PtrToStringAuto (Convert-VaultSecretToCredential 1.1.0, Resolve-VaultCredential 1.3.0). New private Open-ServiceApiBrowser 1.0.0 used by Invoke-AriaOidcLogin 1.4.0. The Aria domain-joined fallback runs on Windows only (Get-ServiceCredential 2.8.0, Set-ServiceCredential 2.9.0). Windows behaviour unchanged; untested on RHEL-family Linux and not re-tested on Windows. |
 | 2.10.4 | 07Oct26 | Australian/British spelling consistency, no code change. The private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` are renamed `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` to match their function names (`Initialise-ServiceConfig`, `Initialise-VaultIndex`), and the manifest text now reads Data Centre and licence. |

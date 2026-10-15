@@ -40,6 +40,8 @@ function Read-ServiceConfig {
         Date        : 08-OCT-26
 
         CHANGE LOG
+        1.5.0 | 15OCT26 | Added OidcAuthority, OidcScope and OidcRedirectUri to the parsed field
+                          whitelist so they survive the read round-trip (PingFederate provider).
         1.4.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.4.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
@@ -84,6 +86,9 @@ function Read-ServiceConfig {
                 if ($src.PSObject.Properties['SSODomain'])   { $envEntry['SSODomain']   = $src.SSODomain }
                 if ($src.PSObject.Properties['SSOTenant'])   { $envEntry['SSOTenant']   = $src.SSOTenant }
                 if ($src.PSObject.Properties['ProbeEndpoint']) { $envEntry['ProbeEndpoint'] = $src.ProbeEndpoint }
+                if ($src.PSObject.Properties['OidcAuthority']) { $envEntry['OidcAuthority'] = $src.OidcAuthority }
+                if ($src.PSObject.Properties['OidcScope'])     { $envEntry['OidcScope']     = $src.OidcScope }
+                if ($src.PSObject.Properties['OidcRedirectUri']) { $envEntry['OidcRedirectUri'] = $src.OidcRedirectUri }
 
                 $result[$serviceName][$env] = $envEntry
             }
