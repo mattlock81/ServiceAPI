@@ -17,8 +17,11 @@ function Wait-AriaCourierToken {
                                            access_token and a refresh_token. The first valid
                                            post ends the wait.
 
-        Anything else receives 403 or 404 and is ignored. An optional -AfterStart script block
-        runs once the listener is accepting (used to open the portal in the browser).
+        Anything else receives 403 or 404 and is ignored. Once the listener is accepting, the
+        portal is opened with Open-ServiceApiBrowser when -PortalUrl is supplied (with the
+        courier install URL shown in a message), and an optional -AfterStart script block runs.
+        The browser is opened here, in module scope, rather than from a caller's script block:
+        a closure made with .GetNewClosure() cannot resolve module-private functions.
 
         Not exported.
 
@@ -37,8 +40,14 @@ function Wait-AriaCourierToken {
     .PARAMETER TimeoutSeconds
         Maximum time to wait. Defaults to 300.
 
+    .PARAMETER PortalUrl
+        Optional. The portal URL to open in the default browser once the listener is accepting.
+        When the browser cannot be opened (for example headless Linux), a message names the URL
+        to open on this same host.
+
     .PARAMETER AfterStart
-        Optional script block run after the listener starts.
+        Optional script block run after the listener starts. Do not create it with
+        .GetNewClosure() if it calls module-private functions.
 
     .OUTPUTS
         PSCustomObject - the accepted payload (origin, access_token, refresh_token,
@@ -52,9 +61,8 @@ function Wait-AriaCourierToken {
         deliver a token response. The first valid post ends the wait and is returned.
 
     .EXAMPLE
-        $payload = Wait-AriaCourierToken -Origin $origin -ScriptText $script -TimeoutSeconds 120 -AfterStart {
-            Start-Process 'https://aria.example.com/tenant/my-tenant/automation/'
-        }
+        $payload = Wait-AriaCourierToken -Origin $origin -ScriptText $script -TimeoutSeconds 120 `
+            -PortalUrl 'https://aria.example.com/tenant/my-tenant/automation/'
 
         Opens the portal in the default browser once the listener is accepting, so no request can
         arrive before it is ready.
@@ -67,10 +75,13 @@ function Wait-AriaCourierToken {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.1.0 | 16OCT26 | Added -PortalUrl: the sign-in and courier-install messages and the browser launch
+                          (Open-ServiceApiBrowser) now happen here, so the caller no longer passes a
+                          .GetNewClosure() block, which cannot resolve module-private functions.
         1.0.2 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
         1.0.1 | 06OCT26 | Added the three help examples required by the CMF standard.
@@ -94,6 +105,8 @@ function Wait-AriaCourierToken {
         [ValidateRange(30, 1800)]
         [int]$TimeoutSeconds = 300,
 
+        [string]$PortalUrl,
+
         [scriptblock]$AfterStart
     )
 
@@ -110,6 +123,14 @@ function Wait-AriaCourierToken {
     $deadline    = (Get-Date).AddSeconds($TimeoutSeconds)
 
     try {
+        if ($PortalUrl) {
+            Write-Host "Aria login: sign in to the portal that is opening. Waiting up to $TimeoutSeconds seconds..." -ForegroundColor Cyan
+            Write-Host "First time on this browser? Install the courier by opening http://127.0.0.1:$Port/aria-oidc-courier.user.js, then reload the portal tab." -ForegroundColor Cyan
+            if (-not (Open-ServiceApiBrowser -Url $PortalUrl)) {
+                Write-Host "No browser could be opened on this host. Open $PortalUrl in a browser on this same host (the courier posts to 127.0.0.1)." -ForegroundColor Yellow
+            }
+        }
+
         if ($AfterStart) { & $AfterStart }
 
         while ($true) {
