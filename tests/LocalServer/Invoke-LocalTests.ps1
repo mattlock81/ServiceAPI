@@ -118,5 +118,27 @@ T 'Listener serves the userscript and accepts a valid token post' {
     } $port
     ($payload.access_token -eq 'AT') -and ($payload.refresh_token -eq 'RT')
 }
+T 'AriaOidc browser path: Invoke-AriaOidcLogin opens the portal through the module-private Open-ServiceApiBrowser' {
+    # Regression: the browser launch used to sit in a .GetNewClosure() block that could not resolve
+    # module-private functions. Open-ServiceApiBrowser is overridden in module scope and stands in
+    # for the browser by posting the courier token to the listener.
+    $m = Get-Module ServiceAPI
+    & $m {
+        $script:OidcBrowserUrl = $null
+        Set-Item -Path 'function:script:Open-ServiceApiBrowser' -Value {
+            param([string]$Url)
+            $script:OidcBrowserUrl = $Url
+            Start-Job -ScriptBlock {
+                Start-Sleep -Milliseconds 800
+                $body = @{ origin = 'http://127.0.0.1:18080'; access_token = 'AT'; refresh_token = 'api-token-valid' } | ConvertTo-Json
+                Invoke-WebRequest 'http://127.0.0.1:47811/token' -Method Post -Body $body -ContentType 'application/json' -Headers @{ 'X-Courier-Key' = 'aria-oidc-courier' } -UseBasicParsing | Out-Null
+            } | Out-Null
+            $true
+        }
+    }
+    $login = & $m { Invoke-AriaOidcLogin -BaseUrl 'http://127.0.0.1:18080' -Tenant 'my-tenant' -TimeoutSeconds 30 6>$null }
+    $url = & $m { $script:OidcBrowserUrl }
+    ($url -eq 'http://127.0.0.1:18080/tenant/my-tenant/automation/') -and ($login.BearerMode -eq 'iaas') -and [bool]$login.Bearer
+}
 "`nRESULT: $script:pass passed, $script:fail failed (OBSERVE lines are findings, not assertions)"
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
