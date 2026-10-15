@@ -2,7 +2,7 @@
 
 **Module**: ServiceAPI
 **Version at time of writing**: 3.0.1, plus unreleased work (vault selection follow-ups, `AriaApiToken`, `PingFederate`) (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
-**Last updated**: 15-OCT-26
+**Last updated**: 16-OCT-26
 **Author**: Matthew Sillett
 
 > Current-state and design-decision record for this repository. `readme.md` is the identity
@@ -117,7 +117,7 @@
 12. No module version has been assigned to the vault selection work; the readme records it as Unreleased.
 13. The `AriaApiToken` call shapes are unverified against a real Aria tenant: which of `csp-authorize`, `oauth-tenant` and `iaas-login` the deployment accepts, which bearer its APIs accept, the API token's lifetime and how revocation appears, and whether the identity's rights match the browser-session token's. Section 8 is the plan.
 14. The `PingFederate` provider is unverified against a real server: that discovery is published, which client authentication method the client uses, that the redirect URI registered on the client matches, whether a refresh token is issued (the client needs the refresh token grant), which claims arrive in the id_token and which only from userinfo, and whether `app:app`, `brf:brf` and the other listed names are scope `app`, `brf` and so on (the assumption in D30) or literal scope strings. Section 9 is the plan.
-15. `Invoke-AriaOidcLogin` passes a `.GetNewClosure()` script block that calls the private `Open-ServiceApiBrowser`; a closure cannot see module-private functions (verified on PowerShell 7 on Linux), so the AriaOidc browser login probably fails. Found while testing `PingFederate`, which avoids the pattern (`Wait-PingFederateCallback` opens the browser itself). Not fixed; raised as a separate task. The listener test in `Invoke-LocalTests.ps1` supplies its own `-AfterStart` and does not catch it.
+15. FIXED 16-OCT-26 (unreleased): `Invoke-AriaOidcLogin` passed a `.GetNewClosure()` script block that called the private `Open-ServiceApiBrowser`; a closure cannot see module-private functions (verified on PowerShell 7 on Linux), so the AriaOidc browser login failed with "The term 'Open-ServiceApiBrowser' is not recognized". `Wait-AriaCourierToken` 1.1.0 now opens the browser itself (`-PortalUrl`, `-InstallUrl`) and `Invoke-AriaOidcLogin` 1.4.1 passes them. `tests/LocalServer/Invoke-AriaOidcLoginTests.ps1` reproduced the failure on the old code (0 of 4) and passes after (4 of 4). Not verified against a real Aria portal or a real browser launch, and the no-vault suites only: the courier userscript path end to end has still not been run.
 16. The `PingFederate` provider is not tested on Windows PowerShell 5.1 or a RHEL-family host. The existing suites (`Invoke-LocalTests.ps1`, `Invoke-AriaApiTokenTests.ps1`, `tests/Vault`) were not re-run for this change: they need `SecretManagement.KeePass`, which the build container lacks.
 
 ## 5. Planned Scope
@@ -150,7 +150,7 @@
   PowerShell profile and delays the client by seconds.
 - PowerShell source must be plain ASCII. Do not use em dashes, smart quotes, arrows or the copyright sign in code, comments, strings or help; use a colon, semicolon, comma or hyphen instead. If a non-ASCII character is unavoidable, save that file as UTF-8 with a BOM, because Windows PowerShell 5.1 otherwise misreads it and the module fails to import.
 - Every function must carry at least three `.EXAMPLE` blocks (CMF).
-- Never end a script block with `.GetNewClosure()` if it calls a module-private function: the closure loses the module's session state and the call fails with "not recognized". Pass values as parameters instead (D27; open item 15).
+- Never end a script block with `.GetNewClosure()` if it calls a module-private function: the closure loses the module's session state and the call fails with "not recognized". Pass values as parameters instead (D27; open item 15, fixed 16-OCT-26 for AriaOidc).
 - To override a module-private function in a test, run `& (Get-Module ServiceAPI) { Set-Item -Path 'function:script:<Name>' -Value { ... } }`. A forced re-import builds a new module, so apply the overrides again afterwards.
 - Do not run `pkill -f` or `pgrep -f` with a pattern that also appears in the command line of the shell running it; the shell kills itself. Use a bracket pattern such as `'[p]ingfed_mock'`.
 - The C# validator in `Invoke-ServiceApiHttpRequest` must stay within C# 5 syntax, because
@@ -213,6 +213,7 @@ Report the probe output and the answers to steps 6 to 8. A failure at the token 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.9.0 | 10-OCT-26 | Brought current to module v3.0.1: vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access. |
+| 1.13.0 | 16-OCT-26 | Open item 15 (AriaOidc `GetNewClosure()` bug) recorded as fixed; new AriaOidc login test. |
 | 1.12.0 | 15-OCT-26 | `PingFederate` provider recorded (D27 to D30, open items 14 to 16, section 9 verification plan, two gotchas). Planned scope updated. Test suite count updated. |
 | 1.11.0 | 09-OCT-26 | `AriaApiToken` provider recorded (D26, open item 13, section 8 verification plan). |
 | 1.10.0 | 08-OCT-26 | Test suites added under `tests/` (local server, vault selection, unattended). D25: certificate rejection reasons in the transport error. Open item 7 rewritten with the Linux finding. |
