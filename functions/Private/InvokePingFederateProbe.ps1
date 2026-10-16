@@ -76,7 +76,8 @@ function Invoke-PingFederateProbe {
     }
 
     $authority = if ($entry.OidcAuthority) { $entry.OidcAuthority } else { $entry.BaseUrl }
-    $endpoint  = Get-PingFederateEndpoint -Authority $authority
+    $probeTransport = Resolve-ServiceTransportOptions -Service $Service -Environment $Environment -Vault $Vault -SkipCertificate
+    $endpoint  = Get-PingFederateEndpoint -Authority $authority -TransportOptions $probeTransport
 
     Write-Host "Authority       : $authority"
     Write-Host "Endpoints from  : $($endpoint.Source)"

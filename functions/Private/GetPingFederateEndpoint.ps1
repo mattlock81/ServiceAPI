@@ -14,6 +14,10 @@ function Get-PingFederateEndpoint {
     .PARAMETER Authority
         The PingFederate base URL, for example https://pf.example.com:9031 (no trailing path).
 
+    .PARAMETER TransportOptions
+        Optional. The transport, client certificate and CA bundle for the discovery request (see
+        Resolve-ServiceTransportOptions).
+
     .EXAMPLE
         Get-PingFederateEndpoint -Authority 'https://pf.example.com:9031'
         Returns the endpoints and Source 'discovery' or 'default'.
@@ -33,17 +37,20 @@ function Get-PingFederateEndpoint {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 15-OCT-26
+        Version     : 1.1.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.1.0 | 16OCT26 | Added -TransportOptions for the discovery request.
         1.0.0 | 15OCT26 | Initial version. PingFederate provider: discovery with default fallback.
     #>
 
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
-        [string]$Authority
+        [string]$Authority,
+
+        [hashtable]$TransportOptions
     )
 
     $Authority     = $Authority.TrimEnd('/')
@@ -59,7 +66,9 @@ function Get-PingFederateEndpoint {
     }
 
     try {
-        $doc = Invoke-ServiceApiHttpRequest -Method Get -Uri "$Authority/.well-known/openid-configuration" -ErrorAction Stop
+        $docParams = @{ Method = 'Get'; Uri = "$Authority/.well-known/openid-configuration"; ErrorAction = 'Stop' }
+        if ($TransportOptions) { $docParams['TransportOptions'] = $TransportOptions }
+        $doc = Invoke-ServiceApiHttpRequest @docParams
 
         $onHost = {
             param($u)
