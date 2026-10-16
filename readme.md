@@ -8,7 +8,7 @@
 
 ## Overview
 
-ServiceAPI is a PowerShell module that provides a unified REST API framework for interacting with multiple services. It supports Basic Auth, static Token, SSO OAuth, QueryParam (credential delivered via URL query string rather than a header), and None (unauthenticated) authentication modes via a persistent service registry pattern, with optional credential persistence through Microsoft SecretManagement vault integration.
+ServiceAPI is a PowerShell module that provides a unified REST API framework for interacting with multiple services. It supports Basic Auth, static Token, SSO OAuth, QueryParam (credential delivered via URL query string rather than a header), Certificate (a TLS client certificate, for mutual TLS) and None (unauthenticated) authentication modes via a persistent service registry pattern, with optional credential persistence through Microsoft SecretManagement vault integration.
 
 SSO providers currently supported: `GCloud` (Google Cloud SDK), `AzureCLI` (Azure CLI), `Aria` (VMware Aria Automation — REST-native, no CLI tool required), `AriaOidc` (Aria / VCF Automation via the portal's OIDC browser session, with a Violentmonkey courier userscript delivering the token to a loopback listener), `AriaApiToken` (Aria / VCF Automation via a self-service API token exchanged without a browser, for unattended use), and `PingFederate` (OpenID Connect authorization code sign-in for a confidential PingFederate client).
 
@@ -62,7 +62,8 @@ Invoke-APIRequest -Service myapi -Endpoint 'resources' -AuthType Token
 | Function | Description |
 |----------|-------------|
 | `Invoke-APIRequest` | Execute REST API calls against registered or ad-hoc services |
-| `Register-CustomService` | Register a service BaseUrl in the persistent service registry |
+| `Register-CustomService` | Register a service BaseUrl in the persistent service registry, with optional SSO provider, client certificate and transport defaults |
+| `New-ServiceClientCertificate` | Describe a client certificate (PFX, PEM pair or certificate store) to present for mutual TLS; reads no secret |
 | `Set-ServiceCredential` | Store Basic Auth, Token, or SSO credentials in global state — and, for Token always and for service+environment-specific Basic Auth, in the vault automatically |
 | `Get-ServiceCredential` | Resolve authentication headers for a service (called internally) |
 | `Get-ServiceConfig` | Resolve BaseUrl and merged headers for a service (called internally) |
@@ -211,6 +212,20 @@ A scope outside this list is sent with a warning, and a scope PingFederate does 
 
 **Validation.** Endpoints come from `/.well-known/openid-configuration`, falling back to `/as/authorization.oauth2`, `/as/token.oauth2` and `/idp/userinfo.openid`. A discovered endpoint on a different host than the authority is ignored. The client authenticates with `client_secret_basic` and falls back to `client_secret_post` on `invalid_client`; the method that worked is remembered. The id_token's issuer, audience, expiry and (for a browser login) nonce are checked; its signature is not verified, because it arrives directly from the token endpoint over TLS (OpenID Connect Core 3.1.3.7).
 
+**Client authentication.** By default the client authenticates with its secret (`client_secret_basic`, falling back to `client_secret_post`). Two certificate methods need no secret:
+
+```powershell
+# A JWT signed with the certificate's private key (RS256, or ES256/ES384/ES512 for an EC key)
+Register-CustomService -ServiceName ping -BaseUrl 'https://pf.example.com:9031' -SSOProvider PingFederate `
+    -OidcClientId '<client id>' -OidcClientAuth private_key_jwt -ClientCertificate $cert -Persistent
+
+# Mutual TLS: the token calls present the certificate on the connection
+Register-CustomService -ServiceName ping -BaseUrl 'https://pf.example.com:9031' -SSOProvider PingFederate `
+    -OidcClientId '<client id>' -OidcClientAuth tls_client_auth -ClientCertificate $cert -Persistent
+```
+
+With `private_key_jwt` the assertion's audience is the token endpoint and the issuer, it lives 120 seconds and has a new `jti` each time, and the header carries the certificate's `x5t` thumbprint. With either certificate method the client id comes from `-OidcClientId` and nothing is read from the `oidcclient` credential. A service's `-Transport` and `-CaBundle` apply to every call to PingFederate, including discovery. The certificate methods are proven against a local mock only.
+
 To see what PingFederate actually granted (names only, no tokens or claim values are printed):
 
 ```powershell
@@ -230,6 +245,47 @@ When the platform reports no certificate errors, the certificate is accepted unc
 - Revocation is not checked, because CRL and OCSP endpoints are normally unreachable from a restricted network.
 
 Output and errors match `Invoke-RestMethod`, so existing `catch` blocks continue to work. Only the scheme, host and path of a request are written to the verbose stream, because a `QueryParam` request carries credentials in its query string. On Windows PowerShell 5.1, a JSON response larger than about 2 MB cannot be parsed.
+
+### Client Certificates (mutual TLS)
+
+`-AuthType Certificate` authenticates a request by the TLS client certificate alone: no `Authorization` header is sent, and the server identifies the caller from the certificate. Any other AuthType can also present a client certificate, for services that need both.
+
+A certificate is described, never loaded, by `New-ServiceClientCertificate`. Three sources are supported:
+
+| Source | Parameters | Notes |
+|---|---|---|
+| PFX / PKCS#12 | `-PfxPath` | One file holding the certificate and key. |
+| PEM pair | `-CertificatePath`, `-KeyPath` | The key may be encrypted. On the .NET transport this needs PowerShell 7; the curl transport reads PEM on any edition. |
+| Certificate store | `-Thumbprint` or `-Subject`, `-Store CurrentUser\|LocalMachine` | The key stays in the store on the .NET transport. The curl transport exports it to a temporary owner-only PFX, so the key must be exportable. |
+
+```powershell
+# One request
+$cert = New-ServiceClientCertificate -PfxPath C:\certs\svc-client.pfx
+Invoke-APIRequest -Service partner -Endpoint 'v1/status' -AuthType Certificate -ClientCertificate $cert
+
+# A default for the service, persisted (the location only, never a password)
+Register-CustomService -ServiceName partner -BaseUrl 'https://partner.example.com' -ClientCertificate $cert -Persistent
+Invoke-APIRequest -Service partner -Endpoint 'v1/status' -AuthType Certificate
+```
+
+**Passwords.** A PFX password or PEM key passphrase is never written to `services.json`. Pass `-Password` (a SecureString, kept in memory for the session), or leave it out: ServiceAPI first tries an empty password, then reads the Basic credential labelled `clientcert` for the service from the vault (the password is the secret; the user name is ignored), and prompts for it if it is not there. Store it once with `Set-ServiceCredential -Service partner -AuthType Basic -Label clientcert`.
+
+A request's `-ClientCertificate` overrides the service's registered one. A certificate is opened once per session and re-read when its file changes. The .NET transport keeps one `HttpClient` per certificate, because a handler's certificate cannot change per request. On Windows, loading a PFX leaves the key in the user's key container (a .NET behaviour); delete it with `certutil` if that matters.
+
+### Transport: .NET or curl/OpenSSL
+
+`-Transport DotNet` (default) sends the request through `HttpClient`. `-Transport Curl` sends it through a curl built with OpenSSL, for hosts whose SChannel lacks TLS 1.3 and for PEM keys used as they are. Both return the same objects and the same error surface (`$_.Exception.Response.StatusCode.value__`, `$_.ErrorDetails.Message`), so callers do not change.
+
+```powershell
+Invoke-APIRequest -Service confluence -Endpoint 'rest/api/space' -Transport Curl -CaBundle C:\certs\roots.pem
+Register-CustomService -ServiceName confluence -BaseUrl 'https://confluence.example.com' -Transport Curl -CaBundle C:\certs\roots.pem -Persistent
+```
+
+- **Finding curl.** `SERVICEAPI_CURL` (a full path), then on Windows the curl bundled with Git for Windows, then any curl on the path. Each is run with `--version` and must name OpenSSL (or LibreSSL or BoringSSL). The `curl.exe` in Windows System32 uses SChannel and is refused, with a message saying how to fix it.
+- **Trust.** curl validates the server certificate with OpenSSL against its own bundle, not the operating system's store on Windows. Pass `-CaBundle` (a PEM file) for an internal CA, per request or as a service default. The .NET name-constraints workaround does not apply, and is not needed: OpenSSL accepts that chain shape.
+- **No secret on a command line.** The URL, every header (Authorization included), certificate paths, passphrases and the CA bundle are given to curl as a configuration on standard input. A request body goes in an owner-only temporary file, and the response body and headers in two more; all are deleted afterwards. A header value containing a line break is refused.
+- **Redirects** are followed (up to five). As with the .NET transport, custom headers other than `Authorization` can be forwarded to a redirect target on another host.
+- **What uses the transport.** `Invoke-APIRequest` (and the SSO 403 retry and bearer probe it makes) and every call the PingFederate provider makes. The Aria providers' own login calls always use the .NET transport.
 
 ### SSO 403 Handling and Probe Endpoints
 
@@ -480,6 +536,8 @@ ServiceAPI/
     │   ├── GetAriaCourierScript.ps1
     │   ├── GetPingFederateClient.ps1
     │   ├── GetPingFederateEndpoint.ps1
+    │   ├── GetServiceClientCertificate.ps1
+    │   ├── GetServiceCurlPath.ps1
     │   ├── GetServiceProbeEndpoint.ps1
     │   ├── InitialiseServiceConfig.ps1
     │   ├── InitialiseVaultIndex.ps1
@@ -493,9 +551,11 @@ ServiceAPI/
     │   ├── InvokePingFederateLogin.ps1
     │   ├── InvokePingFederateProbe.ps1
     │   ├── InvokePingFederateTokenRequest.ps1
+    │   ├── InvokeServiceApiCurlRequest.ps1
     │   ├── InvokeServiceApiHttpRequest.ps1
     │   ├── InvokeServiceSsoRetry.ps1
     │   ├── InvokeSSOProviderToken.ps1
+    │   ├── NewServiceClientAssertion.ps1
     │   ├── NewServiceKey.ps1
     │   ├── NewServiceDefaultVault.ps1
     │   ├── NewStandardHeaders.ps1
@@ -505,6 +565,7 @@ ServiceAPI/
     │   ├── ReadVaultIndex.ps1
     │   ├── RemoveVaultIndex.ps1
     │   ├── ResolvePingFederateScope.ps1
+    │   ├── ResolveServiceTransportOptions.ps1
     │   ├── ResolveServiceVault.ps1
     │   ├── ResolveVaultCredential.ps1
     │   ├── SaveVaultIndex.ps1
@@ -533,7 +594,7 @@ User data files are stored outside the module directory and are never committed 
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant, ProbeEndpoint, OidcAuthority, OidcScope and OidcRedirectUri per service/environment |
+| `services.json` | `$env:APPDATA\ServiceAPI\` (Windows), `~/.config/ServiceAPI/` (Linux, or `$XDG_CONFIG_HOME`) | Persistent service registry — BaseUrl, SSOProvider, SSODomain, SSOTenant, ProbeEndpoint, OidcAuthority, OidcScope, OidcRedirectUri, OidcClientId, OidcClientAuth, Transport, CaBundle and the client certificate's location (never a password) per service/environment |
 | `vault-config.json` | Same folder as `credential-index.json` | The saved default vault name (created by `Set-ServiceVault`) |
 | `credential-index.json` | `$env:LOCALAPPDATA\ServiceAPI\` (Windows), `~/.local/share/ServiceAPI/` (Linux, or `$XDG_DATA_HOME`) | Machine-local vault label index — tracks which named credentials exist per service key |
 
@@ -543,7 +604,7 @@ User data files are stored outside the module directory and are never committed 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| Unreleased | 16Oct26 | Fixed the AriaOidc browser login, which failed with "The term 'Open-ServiceApiBrowser' is not recognized": the portal was opened from an `-AfterStart` script block made with `GetNewClosure()`, which cannot see the module's private functions. `Wait-AriaCourierToken` 1.1.0 now opens the browser itself (new `-PortalUrl` and `-InstallUrl`); `Invoke-AriaOidcLogin` 1.4.1. New test `tests/LocalServer/Invoke-AriaOidcLoginTests.ps1` (reproduced the failure before the fix, passes after). Earlier unreleased work, 15Oct26: PingFederate SSO provider: OpenID Connect authorization code sign-in for a confidential client, with silent refresh, discovery, client authentication fallback and id_token checks. New parameters `-OidcAuthority`, `-OidcScope` and `-OidcRedirectUri` on Register-CustomService 2.8.0, persisted by Write-ServiceConfig 1.6.0 and Read-ServiceConfig 1.5.0 and forwarded by the Phase 5 load; Set-ServiceCredential 2.12.0, Get-ServiceCredential 2.11.0, Invoke-SSOProviderToken 1.5.0. New private Invoke-PingFederateLogin, Invoke-PingFederateTokenRequest, Invoke-PingFederateProbe, Get-PingFederateEndpoint, Get-PingFederateClient, Resolve-PingFederateScope and Wait-PingFederateCallback 1.0.0. Tested against a local mock PingFederate only; not yet verified against a real server. Earlier unreleased work, 09Oct26: AriaApiToken SSO provider (Register-CustomService 2.7.0, Set-ServiceCredential 2.11.0, Get-ServiceCredential 2.10.0, Invoke-SSOProviderToken 1.4.0, Get-ServiceProbeEndpoint 1.1.0; new private Invoke-AriaApiTokenExchange, Invoke-AriaApiTokenLogin, Invoke-AriaApiTokenProbe and Get-AriaApiToken 1.0.0). Tested against a local Aria emulation only; not yet verified against a tenant. Earlier unreleased work, 08Oct26: Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
+| Unreleased | 16Oct26 | Client certificates and a curl/OpenSSL transport. New public New-ServiceClientCertificate 1.0.0; new AuthType Certificate (mutual TLS) and new `-Transport`, `-ClientCertificate` and `-CaBundle` on Invoke-APIRequest 2.10.0 and Register-CustomService 2.9.0 (a service default, persisted by Write-ServiceConfig 1.7.0 and Read-ServiceConfig 1.6.0 with no password); PFX, PEM pair (plain or encrypted) and certificate store sources with the password read from the vault (Basic label `clientcert`). Invoke-ServiceApiHttpRequest 1.3.0 keeps one HttpClient per certificate and can send through the new Invoke-ServiceApiCurlRequest 1.0.0 (curl built with OpenSSL; secrets on standard input, never a command line). PingFederate certificate client authentication: `-OidcClientAuth private_key_jwt` and `tls_client_auth` with `-OidcClientId` (Set-ServiceCredential 2.13.0, Invoke-PingFederateLogin 2.0.0, Invoke-PingFederateTokenRequest 2.0.0, new New-ServiceClientAssertion 1.0.0). New private Get-ServiceClientCertificate, Resolve-ServiceTransportOptions and Get-ServiceCurlPath 1.0.0; Test-ServiceBearer 1.1.0 and Invoke-ServiceSsoRetry 1.1.0 pass the options through. 62 new checks against a local mutual-TLS server and mock PingFederate on PowerShell 7 on Linux; not tested on Windows or against a real server. Earlier unreleased work, 16Oct26: Fixed the AriaOidc browser login, which failed with "The term 'Open-ServiceApiBrowser' is not recognized": the portal was opened from an `-AfterStart` script block made with `GetNewClosure()`, which cannot see the module's private functions. `Wait-AriaCourierToken` 1.1.0 now opens the browser itself (new `-PortalUrl` and `-InstallUrl`); `Invoke-AriaOidcLogin` 1.4.1. New test `tests/LocalServer/Invoke-AriaOidcLoginTests.ps1` (reproduced the failure before the fix, passes after). Earlier unreleased work, 15Oct26: PingFederate SSO provider: OpenID Connect authorization code sign-in for a confidential client, with silent refresh, discovery, client authentication fallback and id_token checks. New parameters `-OidcAuthority`, `-OidcScope` and `-OidcRedirectUri` on Register-CustomService 2.8.0, persisted by Write-ServiceConfig 1.6.0 and Read-ServiceConfig 1.5.0 and forwarded by the Phase 5 load; Set-ServiceCredential 2.12.0, Get-ServiceCredential 2.11.0, Invoke-SSOProviderToken 1.5.0. New private Invoke-PingFederateLogin, Invoke-PingFederateTokenRequest, Invoke-PingFederateProbe, Get-PingFederateEndpoint, Get-PingFederateClient, Resolve-PingFederateScope and Wait-PingFederateCallback 1.0.0. Tested against a local mock PingFederate only; not yet verified against a real server. Earlier unreleased work, 09Oct26: AriaApiToken SSO provider (Register-CustomService 2.7.0, Set-ServiceCredential 2.11.0, Get-ServiceCredential 2.10.0, Invoke-SSOProviderToken 1.4.0, Get-ServiceProbeEndpoint 1.1.0; new private Invoke-AriaApiTokenExchange, Invoke-AriaApiTokenLogin, Invoke-AriaApiTokenProbe and Get-AriaApiToken 1.0.0). Tested against a local Aria emulation only; not yet verified against a tenant. Earlier unreleased work, 08Oct26: Vault selection. The index records the vault per label (`service-key -> label -> vault`); an older index is migrated on load. New public Get-ServiceVault and Set-ServiceVault 1.0.0 and a saved default in `vault-config.json`. New `-Vault` parameter on Set-ServiceCredential 2.10.0, Get-ServiceCredential 2.9.0, Clear-ServiceCredential 2.7.0, Invoke-APIRequest 2.9.0 and Get-ServiceConfig 2.6.0. The hardcoded `LocalStore` is removed and both `Get-Secret` calls are scoped to a vault (Resolve-VaultCredential 1.4.0). New private Resolve-ServiceVault, New-ServiceDefaultVault, Save-VaultIndex, Read-VaultConfig, Write-VaultConfig and Test-ServiceApiInteractive. Writes keep a label in the vault that already records it. The certificate validator now says why it rejected a certificate (Invoke-ServiceApiHttpRequest 1.2.0). Test suites under `tests/`. Tested with two KeePass vaults and a local HTTP/HTTPS server on PowerShell 7.6 on Linux; not tested on RHEL-family Linux or Windows. |
 | 3.0.1 | 10Oct26 | Release of vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access. |
 | 3.0.0 | 08Oct26 | Linux support. Phase 0.6 platform detection (Windows or Linux; RHEL-family is the target, other Linux warns, macOS refused). XDG data locations and owner-only permissions on Linux (new private Set-ServiceApiSecureMode 1.0.0, used by Initialise-ServiceConfig 1.3.0, Initialise-VaultIndex 1.2.0, Write-ServiceConfig 1.5.0, Write-VaultIndex 1.2.0, Remove-VaultIndex 1.1.0). SecureString conversion no longer uses PtrToStringAuto (Convert-VaultSecretToCredential 1.1.0, Resolve-VaultCredential 1.3.0). New private Open-ServiceApiBrowser 1.0.0 used by Invoke-AriaOidcLogin 1.4.0. The Aria domain-joined fallback runs on Windows only (Get-ServiceCredential 2.8.0, Set-ServiceCredential 2.9.0). Windows behaviour unchanged; untested on RHEL-family Linux and not re-tested on Windows. |
 | 2.10.4 | 07Oct26 | Australian/British spelling consistency, no code change. The private files `InitializeServiceConfig.ps1` and `InitializeVaultIndex.ps1` are renamed `InitialiseServiceConfig.ps1` and `InitialiseVaultIndex.ps1` to match their function names (`Initialise-ServiceConfig`, `Initialise-VaultIndex`), and the manifest text now reads Data Centre and licence. |
