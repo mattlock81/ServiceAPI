@@ -15,6 +15,14 @@ function Invoke-APIRequest {
           whether a Bearer or Basic header is built.
         - SSO: Short-lived OAuth Bearer token via provider dispatch. Provider resolved
           from service registry. Auto-refreshed when stale. Never stored in vault.
+        - Certificate: authentication by TLS client certificate (mutual TLS) alone. No
+          Authorization header is sent; the server identifies the caller from the certificate
+          given by -ClientCertificate or registered for the service. Any other AuthType can
+          also present a client certificate, for services that need both.
+
+        -Transport selects how the request is sent: DotNet (default) or Curl (a curl built with
+        OpenSSL, for TLS 1.3 on hosts whose SChannel lacks it and native PEM keys). It can be set
+        per request or as a default on the registered service.
 
         -Label specifies the vault credential label for Basic and Token auth types.
         Defaults to 'default'. Multiple credentials per service are supported by
@@ -78,6 +86,17 @@ function Invoke-APIRequest {
     .PARAMETER Silent
         Suppresses module-generated handled-error output while still rethrowing exceptions.
 
+    .PARAMETER Transport
+        DotNet (default) or Curl. Overrides the service's registered default for this request.
+
+    .PARAMETER ClientCertificate
+        A client certificate descriptor from New-ServiceClientCertificate, presented for mutual
+        TLS. Overrides the service's registered default for this request.
+
+    .PARAMETER CaBundle
+        A PEM file of trusted CA certificates for the Curl transport (curl uses its own trust
+        store, not the operating system's, on Windows). Overrides the service's default.
+
     .EXAMPLE
         Invoke-APIRequest -Service jira -Endpoint 'api/2/myself'
         Basic Auth request using vault or four-tier credential fallback.
@@ -115,12 +134,27 @@ function Invoke-APIRequest {
         Invoke-APIRequest -BaseUrl 'https://api.example.com' -Headers $headers -Endpoint 'resource'
         Explicit header override mode: bypasses all credential resolution.
 
+    .EXAMPLE
+        $cert = New-ServiceClientCertificate -PfxPath C:\certs\svc-client.pfx
+        Invoke-APIRequest -Service partner -Endpoint 'v1/status' -AuthType Certificate -ClientCertificate $cert
+
+        Authenticates with a TLS client certificate alone.
+
+    .EXAMPLE
+        Invoke-APIRequest -Service confluence -Endpoint 'rest/api/space' -Transport Curl -CaBundle ./roots.pem
+
+        Sends one request through curl/OpenSSL, trusting the CAs in roots.pem.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.9.0
-        Date        : 08-OCT-26
+        Version     : 2.10.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        2.10.0 | 16OCT26 | New AuthType Certificate (mutual TLS alone) and new -Transport, -ClientCertificate and
+                          -CaBundle parameters, declared last so no positional parameter moves. A request value
+                          overrides the registered service's default (Resolve-ServiceTransportOptions). The options
+                          also reach the SSO 403 retry.
         2.9.0 | 08OCT26 | Vault selection: new -Vault parameter (declared last, so no positional parameter moves), passed through to Get-ServiceConfig, Get-ServiceCredential
                           and the 403 credential refresh.
         2.8.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
@@ -195,7 +229,7 @@ function Invoke-APIRequest {
         [string]$Endpoint,
 
         # Authentication type: tab-completed, explicit, unambiguous.
-        [ValidateSet('Basic', 'Token', 'SSO', 'None', 'QueryParam')]
+        [ValidateSet('Basic', 'Token', 'SSO', 'None', 'QueryParam', 'Certificate')]
         [string]$AuthType = 'Basic',
 
         # Vault credential label: applies to Basic and Token. Defaults to 'default'.
@@ -223,12 +257,22 @@ function Invoke-APIRequest {
                     }
             }
         })]
-        [string]$Vault
+        [string]$Vault,
+
+        # How the request is sent, and the client certificate and CA bundle it uses. A value here
+        # overrides the registered service's default.
+        [ValidateSet('DotNet', 'Curl')]
+        [string]$Transport,
+
+        [object]$ClientCertificate,
+
+        [string]$CaBundle
     )
 
     # QueryParam is vault-backed like Basic, so it is eligible for 403 retry.
-    # Token, SSO, and None are not.
-    $useTokenOrSSO = $AuthType -in @('Token', 'SSO', 'None')
+    # Token, SSO, None and Certificate are not.
+    $useTokenOrSSO = $AuthType -in @('Token', 'SSO', 'None', 'Certificate')
+    $transportOptions = $null
 
     try {
         $isExplicitAuthOverride = $false
@@ -310,6 +354,28 @@ function Invoke-APIRequest {
             # AuthType None with direct BaseUrl: no service registration or credential resolution required
             $resolvedBaseUrl = $BaseUrl
             $mergedHeaders   = New-StandardHeaders
+            if ($Headers -and $Headers -is [System.Collections.IDictionary]) {
+                $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] }
+            }
+
+        } elseif ($AuthType -eq 'Certificate') {
+            # Certificate: the TLS client certificate authenticates the caller; no Authorization header
+            if (-not [string]::IsNullOrWhiteSpace($Service)) {
+                $configParams = @{ Service = $Service; Environment = $Environment }
+                if ($BaseUrl) { $configParams['BaseUrl'] = $BaseUrl }
+                $config = Get-ServiceConfig @configParams -AuthType None
+                if (-not $config) {
+                    throw "Failed to resolve service configuration for [$Service] in [$Environment]."
+                }
+                $resolvedBaseUrl = $config.BaseUrl
+                $mergedHeaders   = @{}
+                $config.Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $config.Headers[$_] }
+            } elseif (-not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+                $resolvedBaseUrl = $BaseUrl
+                $mergedHeaders   = New-StandardHeaders
+            } else {
+                throw "AuthType Certificate requires -Service or -BaseUrl."
+            }
             if ($Headers -and $Headers -is [System.Collections.IDictionary]) {
                 $Headers.Keys | ForEach-Object { $mergedHeaders[$_] = $Headers[$_] }
             }
@@ -402,7 +468,15 @@ function Invoke-APIRequest {
         # Construct the final request URI
         $uri = "$($resolvedBaseUrl.TrimEnd('/'))/$($Endpoint.TrimStart('/'))"
 
-        $params = @{ Method = $Method; Uri = $uri; Headers = $mergedHeaders }
+        # Transport, client certificate and CA bundle: this request's values, else the service's defaults
+        $transportParams = @{ Service = $Service; Environment = $Environment; Vault = $Vault }
+        if ($Transport)         { $transportParams['Transport']         = $Transport }
+        if ($ClientCertificate) { $transportParams['ClientCertificate'] = $ClientCertificate }
+        if ($CaBundle)          { $transportParams['CaBundle']          = $CaBundle }
+        if ($AuthType -eq 'Certificate') { $transportParams['RequireCertificate'] = $true }
+        $transportOptions = Resolve-ServiceTransportOptions @transportParams
+
+        $params = @{ Method = $Method; Uri = $uri; Headers = $mergedHeaders; TransportOptions = $transportOptions }
         if ($Body) { $params['Body'] = $json }
 
         return Invoke-ServiceApiHttpRequest @params
@@ -419,7 +493,8 @@ function Invoke-APIRequest {
             # SSO: refresh the token and retry once, but only when a refresh could change the outcome
             if ($AuthType -eq 'SSO') {
                 $retry = Invoke-ServiceSsoRetry -Service $Service -Environment $Environment `
-                    -BaseUrl $resolvedBaseUrl -Uri $uri -Method $Method -Headers $mergedHeaders -Body $json
+                    -BaseUrl $resolvedBaseUrl -Uri $uri -Method $Method -Headers $mergedHeaders -Body $json `
+                    -TransportOptions $transportOptions
 
                 switch ($retry.Outcome) {
                     'Retried' {
@@ -455,6 +530,11 @@ function Invoke-APIRequest {
 
                 Set-ServiceCredential -Service $Service -Environment $Environment -AuthType Basic -Vault $Vault
 
+                $transportPassThrough = @{}
+                if ($Transport)         { $transportPassThrough['Transport']         = $Transport }
+                if ($ClientCertificate) { $transportPassThrough['ClientCertificate'] = $ClientCertificate }
+                if ($CaBundle)          { $transportPassThrough['CaBundle']          = $CaBundle }
+
                 Write-Verbose "Retrying request after credential refresh."
                 return Invoke-APIRequest -Service $Service `
                                          -Environment $Environment `
@@ -464,6 +544,7 @@ function Invoke-APIRequest {
                                          -Headers $Headers `
                                          -BaseUrl $BaseUrl `
                                          -Vault $Vault `
+                                         @transportPassThrough `
                                          -Verbose:$VerbosePreference
             } catch {
                 Write-ServiceApiHandledError -ErrorRecord $_ -Severity 'Critical' -Message 'Credential refresh failed after 403.'

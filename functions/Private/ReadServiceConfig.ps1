@@ -40,6 +40,9 @@ function Read-ServiceConfig {
         Date        : 08-OCT-26
 
         CHANGE LOG
+        1.6.0 | 16OCT26 | Added OidcClientId, OidcClientAuth, Transport, CaBundle and the nested
+                          ClientCertificate (rebuilt as a ServiceApi.ClientCertificate with no password)
+                          to the parsed field whitelist.
         1.5.0 | 15OCT26 | Added OidcAuthority, OidcScope and OidcRedirectUri to the parsed field
                           whitelist so they survive the read round-trip (PingFederate provider).
         1.4.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
@@ -89,6 +92,22 @@ function Read-ServiceConfig {
                 if ($src.PSObject.Properties['OidcAuthority']) { $envEntry['OidcAuthority'] = $src.OidcAuthority }
                 if ($src.PSObject.Properties['OidcScope'])     { $envEntry['OidcScope']     = $src.OidcScope }
                 if ($src.PSObject.Properties['OidcRedirectUri']) { $envEntry['OidcRedirectUri'] = $src.OidcRedirectUri }
+                foreach ($plain in 'OidcClientId', 'OidcClientAuth', 'Transport', 'CaBundle') {
+                    if ($src.PSObject.Properties[$plain]) { $envEntry[$plain] = $src.$plain }
+                }
+                if ($src.PSObject.Properties['ClientCertificate'] -and $src.ClientCertificate.PSObject.Properties['Source']) {
+                    $cert = $src.ClientCertificate
+                    $envEntry['ClientCertificate'] = [pscustomobject]@{
+                        PSTypeName = 'ServiceApi.ClientCertificate'
+                        Source     = $cert.Source
+                        Path       = $cert.Path
+                        KeyPath    = $cert.KeyPath
+                        Thumbprint = $cert.Thumbprint
+                        Subject    = $cert.Subject
+                        Store      = $cert.Store
+                        Password   = $null
+                    }
+                }
 
                 $result[$serviceName][$env] = $envEntry
             }

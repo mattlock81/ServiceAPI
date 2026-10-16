@@ -32,6 +32,10 @@ function Test-ServiceBearer {
     .PARAMETER TimeoutSec
         Seconds to wait for the probe. Defaults to 20.
 
+    .PARAMETER TransportOptions
+        Optional. The transport, client certificate and CA bundle the service's own requests use
+        (see Resolve-ServiceTransportOptions), so the probe reaches the host the same way.
+
     .EXAMPLE
         Test-ServiceBearer -BaseUrl 'https://aria.example.com' -Endpoint 'iaas/api/projects?$top=1' -Token $bearer
 
@@ -51,10 +55,12 @@ function Test-ServiceBearer {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 06-OCT-26
+        Version     : 1.1.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.1.0 | 16OCT26 | Added -TransportOptions, passed to the HTTP transport, so the probe uses the same
+                          transport and client certificate as the request it is testing.
         1.0.0 | 06OCT26 | Initial version. Replaces the duplicated bearer probes in
                           Invoke-APIRequest and Invoke-AriaOidcLogin.
     #>
@@ -74,7 +80,9 @@ function Test-ServiceBearer {
         [string]$Authorization,
 
         [ValidateRange(1, 300)]
-        [int]$TimeoutSec = 20
+        [int]$TimeoutSec = 20,
+
+        [hashtable]$TransportOptions
     )
 
     if ($PSCmdlet.ParameterSetName -eq 'Token') {
@@ -88,7 +96,7 @@ function Test-ServiceBearer {
     try {
         $null = Invoke-ServiceApiHttpRequest -Method GET -Uri $probeUri `
             -Headers @{ Authorization = $authorizationValue; Accept = 'application/json' } `
-            -TimeoutSec $TimeoutSec -ErrorAction Stop
+            -TimeoutSec $TimeoutSec -TransportOptions $TransportOptions -ErrorAction Stop
         Write-Verbose "Bearer probe [$Endpoint] succeeded."
         return $true
     } catch {

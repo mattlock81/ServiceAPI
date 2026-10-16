@@ -76,6 +76,30 @@ function Register-CustomService {
         PingFederate client. It must be an http loopback address (127.0.0.1 or localhost) and
         must match the registration exactly. Defaults to http://127.0.0.1:47812/callback.
 
+    .PARAMETER OidcClientId
+        Optional. Used by the PingFederate provider. The OAuth client id. Required when
+        -OidcClientAuth is private_key_jwt or tls_client_auth; with a client secret the id comes
+        from the stored 'oidcclient' credential instead.
+
+    .PARAMETER OidcClientAuth
+        Optional. Used by the PingFederate provider. How the client authenticates at the token
+        endpoint: secret (default; client id and secret), private_key_jwt (a JWT signed with the
+        client certificate's private key) or tls_client_auth (the token call is made over mutual
+        TLS with the client certificate). The two certificate methods need -ClientCertificate and
+        -OidcClientId.
+
+    .PARAMETER Transport
+        Optional. The default transport for the service: DotNet (default) or Curl (a curl built
+        with OpenSSL). A request can override it with Invoke-APIRequest -Transport.
+
+    .PARAMETER ClientCertificate
+        Optional. A descriptor from New-ServiceClientCertificate, presented for mutual TLS on every
+        request to the service. Only the location is persisted (never a password); the password
+        is read from the vault (Basic label 'clientcert') or prompted for when needed.
+
+    .PARAMETER CaBundle
+        Optional. A PEM file of trusted CA certificates for the Curl transport.
+
     .PARAMETER ProbeEndpoint
         Optional. A relative endpoint (for example 'iaas/api/projects?$top=1') that returns 2xx
         for any valid bearer the identity may use at all. The module sends a bearer here to tell
@@ -117,12 +141,22 @@ function Register-CustomService {
         Registers a PingFederate service. The OAuth client is then stored with
         Set-ServiceCredential -Service ping -AuthType Basic -Label oidcclient.
 
+    .EXAMPLE
+        $cert = New-ServiceClientCertificate -PfxPath C:\certs\svc-client.pfx
+        Register-CustomService -ServiceName partner -BaseUrl 'https://partner.example.com' -ClientCertificate $cert -Transport Curl -CaBundle C:\certs\roots.pem -Persistent
+
+        Registers a service that always presents a client certificate and is sent through curl/OpenSSL.
+
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.8.0
-        Date        : 15-OCT-26
+        Version     : 2.9.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        2.9.0 | 16OCT26 | Added -Transport, -ClientCertificate and -CaBundle (per-service transport defaults)
+                          and -OidcClientId and -OidcClientAuth (PingFederate certificate client
+                          authentication). Persisted via Write-ServiceConfig; a certificate password is never
+                          persisted.
         2.8.0 | 15OCT26 | Added PingFederate to the -SSOProvider ValidateSet, and the optional
                           -OidcAuthority, -OidcScope and -OidcRedirectUri parameters, stored in the
                           registry entry and persisted via Write-ServiceConfig. Used only by the
@@ -193,6 +227,18 @@ function Register-CustomService {
 
         [string]$OidcRedirectUri,
 
+        [string]$OidcClientId,
+
+        [ValidateSet('secret', 'private_key_jwt', 'tls_client_auth')]
+        [string]$OidcClientAuth,
+
+        [ValidateSet('DotNet', 'Curl')]
+        [string]$Transport,
+
+        [object]$ClientCertificate,
+
+        [string]$CaBundle,
+
         [string]$ProbeEndpoint,
 
         [switch]$Persistent,
@@ -242,9 +288,9 @@ function Register-CustomService {
         Write-Verbose "SSO tenant [$SSOTenant] registered for [$ServiceName-$Environment]."
     }
 
-    if ($OidcAuthority -or $OidcScope -or $OidcRedirectUri) {
+    if ($OidcAuthority -or $OidcScope -or $OidcRedirectUri -or $OidcClientId -or $OidcClientAuth) {
         if ($SSOProvider -ne 'PingFederate') {
-            Write-Warning "-OidcAuthority, -OidcScope and -OidcRedirectUri are only used by the PingFederate SSO provider and will be stored but ignored for provider [$SSOProvider]."
+            Write-Warning "-OidcAuthority, -OidcScope, -OidcRedirectUri, -OidcClientId and -OidcClientAuth are only used by the PingFederate SSO provider and will be stored but ignored for provider [$SSOProvider]."
         }
         if ($OidcAuthority) {
             if ($OidcAuthority -notmatch '^https?://') { throw "OidcAuthority must start with http:// or https://" }
@@ -252,7 +298,27 @@ function Register-CustomService {
         }
         if ($OidcScope)       { $entry['OidcScope']       = (($OidcScope -split '[\s,]+') | Where-Object { $_ }) -join ' ' }
         if ($OidcRedirectUri) { $entry['OidcRedirectUri'] = $OidcRedirectUri }
+        if ($OidcClientId)    { $entry['OidcClientId']    = $OidcClientId }
+        if ($OidcClientAuth)  { $entry['OidcClientAuth']  = $OidcClientAuth }
         Write-Verbose "OIDC settings registered for [$ServiceName-$Environment]."
+    }
+
+    if ($ClientCertificate) {
+        if (-not $ClientCertificate.PSObject.Properties['Source']) {
+            throw "-ClientCertificate must come from New-ServiceClientCertificate."
+        }
+        $entry['ClientCertificate'] = $ClientCertificate
+        Write-Verbose "Client certificate ($($ClientCertificate.Source)) registered for [$ServiceName-$Environment]."
+    }
+    if ($Transport) {
+        $entry['Transport'] = $Transport
+        Write-Verbose "Transport [$Transport] registered for [$ServiceName-$Environment]."
+    }
+    if ($CaBundle) {
+        $entry['CaBundle'] = $CaBundle
+    }
+    if ($OidcClientAuth -in @('private_key_jwt', 'tls_client_auth') -and -not $ClientCertificate) {
+        Write-Warning "-OidcClientAuth $OidcClientAuth needs a client certificate. Register one with -ClientCertificate or the sign-in will stop with an error."
     }
 
     if ($ProbeEndpoint) {
@@ -282,6 +348,11 @@ function Register-CustomService {
         if ($entry.ContainsKey('OidcAuthority'))   { $writeParams['OidcAuthority']   = $entry['OidcAuthority'] }
         if ($entry.ContainsKey('OidcScope'))       { $writeParams['OidcScope']       = $entry['OidcScope'] }
         if ($entry.ContainsKey('OidcRedirectUri')) { $writeParams['OidcRedirectUri'] = $entry['OidcRedirectUri'] }
+        if ($entry.ContainsKey('OidcClientId'))    { $writeParams['OidcClientId']    = $entry['OidcClientId'] }
+        if ($entry.ContainsKey('OidcClientAuth'))  { $writeParams['OidcClientAuth']  = $entry['OidcClientAuth'] }
+        if ($entry.ContainsKey('Transport'))        { $writeParams['Transport']        = $entry['Transport'] }
+        if ($entry.ContainsKey('CaBundle'))         { $writeParams['CaBundle']         = $entry['CaBundle'] }
+        if ($entry.ContainsKey('ClientCertificate')) { $writeParams['ClientCertificate'] = $entry['ClientCertificate'] }
 
         Write-ServiceConfig @writeParams
         Write-Verbose "Persisted [$ServiceName-$Environment] to services.json."
