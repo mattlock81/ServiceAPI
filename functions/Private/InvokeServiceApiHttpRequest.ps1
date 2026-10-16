@@ -35,6 +35,13 @@ function Invoke-ServiceApiHttpRequest {
         Only the scheme, host and path of a request are ever written to the verbose stream,
         because a QueryParam request carries credentials in its query string.
 
+        Two transports are available through -TransportOptions. DotNet (the default) is the
+        HttpClient path described above. Curl sends the request through a curl built with
+        OpenSSL (Invoke-ServiceApiCurlRequest) and returns the same output and error surface; it
+        gives TLS 1.3 on hosts whose SChannel lacks it and reads PEM keys natively. Either
+        transport can present a client certificate for mutual TLS. The DotNet transport keeps one
+        HttpClient per client certificate, because a handler's certificate cannot change per request.
+
         Known limitation: on Windows PowerShell 5.1, ConvertFrom-Json rejects a JSON document
         larger than about 2 MB, where Invoke-RestMethod does not.
 
@@ -62,6 +69,12 @@ function Invoke-ServiceApiHttpRequest {
     .PARAMETER StatusCodeVariable
         Name of a variable to set, in the caller's scope, to the integer HTTP status code of
         the response (including a non-2xx response, before the error is thrown).
+
+    .PARAMETER TransportOptions
+        Optional hashtable from Resolve-ServiceTransportOptions: Transport ('DotNet' or 'Curl'),
+        Certificate (an opened client certificate from Get-ServiceClientCertificate, presented for
+        mutual TLS) and CaBundle (a PEM file of trusted CAs, used by the curl transport). Omitted
+        means the DotNet transport with no client certificate.
 
     .EXAMPLE
         Invoke-ServiceApiHttpRequest -Uri 'https://aria.example.com/iaas/api/about'
@@ -94,10 +107,13 @@ function Invoke-ServiceApiHttpRequest {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.2.0
-        Date        : 08-OCT-26
+        Version     : 1.3.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.3.0 | 16OCT26 | Added -TransportOptions. Client certificates for mutual TLS (one HttpClient per
+                          certificate thumbprint) and an optional curl/OpenSSL transport that returns
+                          the same output and error surface. No change for callers that omit it.
         1.2.0 | 08OCT26 | The certificate validator records why a certificate was rejected (untrusted root with the
                           chain status, or a host name missing from the certificate) and the request error now ends with
                           "Certificate rejected: <reason>" instead of only "rejected by the RemoteCertificateValidationCallback".
@@ -129,13 +145,15 @@ function Invoke-ServiceApiHttpRequest {
         [ValidateRange(1, 3600)]
         [int]$TimeoutSec = 100,
 
-        [string]$StatusCodeVariable
+        [string]$StatusCodeVariable,
+
+        [hashtable]$TransportOptions
     )
 
     # =========================================================================
     # One-time session setup: assembly, validator type, shared client
     # =========================================================================
-    if (-not $script:ServiceApiHttpClient) {
+    if (-not $script:ServiceApiHttpClients) {
 
         Add-Type -AssemblyName System.Net.Http
 
@@ -302,16 +320,41 @@ public static class ServiceApiCertValidator
             }
         }
 
-        $handler = [System.Net.Http.HttpClientHandler]::new()
-        $handler.UseCookies                = $false
-        $handler.AllowAutoRedirect         = $true
-        $handler.MaxAutomaticRedirections  = 5
-        $handler.AutomaticDecompression    = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
-        $handler.ServerCertificateCustomValidationCallback = [ServiceApiCertValidator]::Callback
+        $script:ServiceApiHttpClients = @{}
+    }
 
-        $client = [System.Net.Http.HttpClient]::new($handler)
-        $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan   # per-request timeout below
-        $script:ServiceApiHttpClient = $client
+    # =========================================================================
+    # Transport options and the HttpClient for this request's client certificate
+    # =========================================================================
+    $transport  = 'DotNet'
+    $clientCert = $null
+    $caBundle   = $null
+    if ($TransportOptions) {
+        if ($TransportOptions['Transport'])   { $transport  = [string]$TransportOptions['Transport'] }
+        if ($TransportOptions['Certificate']) { $clientCert = $TransportOptions['Certificate'] }
+        if ($TransportOptions['CaBundle'])    { $caBundle   = [string]$TransportOptions['CaBundle'] }
+    }
+
+    $httpClient = $null
+    if ($transport -eq 'DotNet') {
+        # A handler's client certificates cannot change per request, so each certificate gets its own client
+        $clientKey = if ($clientCert) { [string]$clientCert.Thumbprint } else { '' }
+        if (-not $script:ServiceApiHttpClients.ContainsKey($clientKey)) {
+            $handler = [System.Net.Http.HttpClientHandler]::new()
+            $handler.UseCookies                = $false
+            $handler.AllowAutoRedirect         = $true
+            $handler.MaxAutomaticRedirections  = 5
+            $handler.AutomaticDecompression    = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+            $handler.ServerCertificateCustomValidationCallback = [ServiceApiCertValidator]::Callback
+            if ($clientCert) {
+                [void]$handler.ClientCertificates.Add($clientCert.Certificate)
+            }
+
+            $client = [System.Net.Http.HttpClient]::new($handler)
+            $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan   # per-request timeout below
+            $script:ServiceApiHttpClients[$clientKey] = $client
+        }
+        $httpClient = $script:ServiceApiHttpClients[$clientKey]
     }
 
     # =========================================================================
@@ -362,44 +405,72 @@ public static class ServiceApiCertValidator
     # =========================================================================
     # Send
     # =========================================================================
-    $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSec))
-    try {
-        $response = $script:ServiceApiHttpClient.SendAsync(
-            $request,
-            [System.Net.Http.HttpCompletionOption]::ResponseContentRead,
-            $cts.Token
-        ).GetAwaiter().GetResult()
-    } catch {
-        # Surface the root cause: HttpRequestException's own message is generic, and the
-        # useful detail (for example the TLS failure) is several exceptions down.
-        $detail   = @()
-        $inner    = $_.Exception
-        while ($inner) {
-            if ($inner.Message -and $detail -notcontains $inner.Message) { $detail += $inner.Message }
-            $inner = $inner.InnerException
+    if ($transport -eq 'Curl') {
+        # The request message already holds the headers and body exactly as the DotNet path would send them
+        try {
+            $curlHeaders = New-Object System.Collections.Generic.List[string]
+            foreach ($header in $request.Headers) { $curlHeaders.Add(('{0}: {1}' -f $header.Key, ($header.Value -join ', '))) }
+            $curlBody = $null
+            if ($request.Content) {
+                $curlBody = $request.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+                if ($request.Content.Headers.ContentType) {
+                    $curlHeaders.Add(('Content-Type: {0}' -f $request.Content.Headers.ContentType.ToString()))
+                }
+            }
+            $curlParams = @{
+                Method     = $Method
+                Uri        = $Uri
+                HeaderLine = $curlHeaders.ToArray()
+                TimeoutSec = $TimeoutSec
+            }
+            if ($null -ne $curlBody) { $curlParams['BodyBytes']   = $curlBody }
+            if ($clientCert)         { $curlParams['Certificate'] = $clientCert }
+            if ($caBundle)           { $curlParams['CaBundle']    = $caBundle }
+            Write-Verbose "Transport: curl"
+            $response = Invoke-ServiceApiCurlRequest @curlParams
+        } finally {
+            $request.Dispose()
         }
+    } else {
+        $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSec))
+        try {
+            $response = $httpClient.SendAsync(
+                $request,
+                [System.Net.Http.HttpCompletionOption]::ResponseContentRead,
+                $cts.Token
+            ).GetAwaiter().GetResult()
+        } catch {
+            # Surface the root cause: HttpRequestException's own message is generic, and the
+            # useful detail (for example the TLS failure) is several exceptions down.
+            $detail   = @()
+            $inner    = $_.Exception
+            while ($inner) {
+                if ($inner.Message -and $detail -notcontains $inner.Message) { $detail += $inner.Message }
+                $inner = $inner.InnerException
+            }
 
-        # The TLS callback can only say "rejected"; the validator records why.
-        $tlsReason = [ServiceApiCertValidator]::TakeReason(([uri]$Uri).DnsSafeHost)
-        if ($tlsReason) { $detail += "Certificate rejected: $tlsReason" }
+            # The TLS callback can only say "rejected"; the validator records why.
+            $tlsReason = [ServiceApiCertValidator]::TakeReason(([uri]$Uri).DnsSafeHost)
+            if ($tlsReason) { $detail += "Certificate rejected: $tlsReason" }
 
-        if ($cts.IsCancellationRequested) {
-            $message = "The request to [$loggableUri] timed out after $TimeoutSec seconds."
-        } else {
-            $message = "The request to [$loggableUri] failed: $($detail -join ' -> ')"
+            if ($cts.IsCancellationRequested) {
+                $message = "The request to [$loggableUri] timed out after $TimeoutSec seconds."
+            } else {
+                $message = "The request to [$loggableUri] failed: $($detail -join ' -> ')"
+            }
+
+            $transportException = [System.Net.Http.HttpRequestException]::new($message, $_.Exception)
+            $transportRecord    = [System.Management.Automation.ErrorRecord]::new(
+                $transportException,
+                'ServiceApiHttpTransport',
+                [System.Management.Automation.ErrorCategory]::ConnectionError,
+                $loggableUri
+            )
+            throw $transportRecord
+        } finally {
+            $cts.Dispose()
+            $request.Dispose()
         }
-
-        $transportException = [System.Net.Http.HttpRequestException]::new($message, $_.Exception)
-        $transportRecord    = [System.Management.Automation.ErrorRecord]::new(
-            $transportException,
-            'ServiceApiHttpTransport',
-            [System.Management.Automation.ErrorCategory]::ConnectionError,
-            $loggableUri
-        )
-        throw $transportRecord
-    } finally {
-        $cts.Dispose()
-        $request.Dispose()
     }
 
     # =========================================================================

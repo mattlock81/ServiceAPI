@@ -51,6 +51,10 @@ function Invoke-ServiceSsoRetry {
     .PARAMETER Body
         The serialised request body, if the request had one.
 
+    .PARAMETER TransportOptions
+        Optional. The transport, client certificate and CA bundle of the original request. The
+        bearer probe and the retry use them, so the retry reaches the host the same way.
+
     .OUTPUTS
         PSCustomObject with Outcome, Response and ErrorRecord. Outcome is one of:
         Retried, AuthorisationDenied, BearerUnchanged, RefreshFailed, RetryFailed.
@@ -78,10 +82,11 @@ function Invoke-ServiceSsoRetry {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.2
-        Date        : 08-OCT-26
+        Version     : 1.1.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.1.0 | 16OCT26 | Added -TransportOptions, passed to the bearer probe and the retry.
         1.0.2 | 08OCT26 | Help examples now use the example service name aria. No code change.
         1.0.1 | 06OCT26 | Replaced em dashes with ASCII punctuation and reworded the affected
                           sentences, so the source is plain ASCII and loads on Windows PowerShell 5.1.
@@ -109,7 +114,9 @@ function Invoke-ServiceSsoRetry {
         [Parameter(Mandatory)]
         [System.Collections.IDictionary]$Headers,
 
-        [string]$Body
+        [string]$Body,
+
+        [hashtable]$TransportOptions
     )
 
     function New-RetryResult {
@@ -120,7 +127,7 @@ function Invoke-ServiceSsoRetry {
     # === Guard 1: probe the current bearer before refreshing ===
     $probeEndpoint = Get-ServiceProbeEndpoint -Service $Service -Environment $Environment
     if ($probeEndpoint -and $Headers['Authorization']) {
-        if (Test-ServiceBearer -BaseUrl $BaseUrl -Endpoint $probeEndpoint -Authorization ([string]$Headers['Authorization'])) {
+        if (Test-ServiceBearer -BaseUrl $BaseUrl -Endpoint $probeEndpoint -Authorization ([string]$Headers['Authorization']) -TransportOptions $TransportOptions) {
             Write-Warning "SSO bearer is valid but the request was forbidden; this is an authorisation denial, not a token problem. Skipping refresh."
             return New-RetryResult -Outcome 'AuthorisationDenied'
         }
@@ -158,6 +165,7 @@ function Invoke-ServiceSsoRetry {
 
     $retryParams = @{ Method = $Method; Uri = $Uri; Headers = $retryHeaders; ErrorAction = 'Stop' }
     if ($Body) { $retryParams['Body'] = $Body }
+    if ($TransportOptions) { $retryParams['TransportOptions'] = $TransportOptions }
 
     try {
         Write-Verbose "Retrying request after SSO token refresh."

@@ -247,17 +247,92 @@ $dir  = & $m { $script:ServiceApiConfigPath }
 $file = Join-Path $dir 'services.json'
 if (Test-Path $file) {
   $j = Get-Content $file -Raw | ConvertFrom-Json
-  foreach ($name in 'pingtest','pingapi') {
+  foreach ($name in 'pingtest','pingapi','pingmtls') {
     if ($j.PSObject.Properties[$name]) { $j.PSObject.Properties.Remove($name) }
   }
   $j | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $file -Encoding UTF8
 }
-$global:ServiceRegistry.Remove('pingtest'); $global:ServiceRegistry.Remove('pingapi')
+$global:ServiceRegistry.Remove('pingtest'); $global:ServiceRegistry.Remove('pingapi'); $global:ServiceRegistry.Remove('pingmtls')
 ```
 
-Confirm nothing named `pingtest` or `pingapi` remains, and that no secret was written to a file or a transcript. If `-Vault` was used, the vault entry is removed by the `Clear-ServiceCredential` Basic line; confirm with `Get-ServiceVault`.
+Also remove the `clientcert` credential if T18 stored one: `Clear-ServiceCredential -Service pingtest -Environment test -AuthType Basic -Label clientcert -Force`. Confirm nothing named `pingtest`, `pingapi` or `pingmtls` remains, and that no secret was written to a file or a transcript. If `-Vault` was used, the vault entry is removed by the `Clear-ServiceCredential` Basic line; confirm with `Get-ServiceVault`.
 
 ---
+
+## 9a. Optional: client certificates and the curl transport (Appendix)
+
+Run these only if the person has a service that requires a client certificate, or wants the curl/OpenSSL transport checked on this host. Extra parameters (the person fills them in):
+
+| Name | Meaning | Value |
+|---|---|---|
+| `<MTLS_API_URL>` | Base URL of an API that requires a TLS client certificate | |
+| `<MTLS_ENDPOINT>` | A cheap read-only endpoint on it | |
+| `<PFX_PATH>` | A PKCS#12 file with the client certificate and key (or use a PEM pair or store certificate) | |
+| `<CA_BUNDLE>` | A PEM file of the CAs that sign the API's server certificate (needed for the curl transport on Windows) | |
+
+**T18 Describe and open the certificate.** The person stores the PFX password first if it has one: `Set-ServiceCredential -Service pingtest -Environment test -AuthType Basic -Label clientcert` (HUMAN; any user name, the password is the secret). Then:
+
+```powershell
+$cert = New-ServiceClientCertificate -PfxPath '<PFX_PATH>'
+& $m { param($c) $r = Get-ServiceClientCertificate -Certificate $c -Service pingtest -Environment test; [pscustomobject]@{ Source = $r.Source; HasPrivateKey = $r.Certificate.HasPrivateKey; NotAfter = $r.Certificate.NotAfter.ToString('yyyy-MM-dd') } } $cert
+```
+
+Expected: `HasPrivateKey` is `True` and `NotAfter` is in the future. Do not record the subject or thumbprint.
+
+**T19 Real call, .NET transport.**
+
+```powershell
+Invoke-APIRequest -BaseUrl '<MTLS_API_URL>' -Endpoint '<MTLS_ENDPOINT>' -AuthType Certificate -ClientCertificate $cert -Silent | Out-Null; 'ok'
+```
+
+Expected: `ok`. A TLS failure names the cause; record the message without host names. If the server also needs a bearer, repeat with `-AuthType Token` or `SSO` and the same `-ClientCertificate`.
+
+**T20 The same call, curl transport.**
+
+```powershell
+Invoke-APIRequest -BaseUrl '<MTLS_API_URL>' -Endpoint '<MTLS_ENDPOINT>' -AuthType Certificate -ClientCertificate $cert -Transport Curl -CaBundle '<CA_BUNDLE>' -Silent | Out-Null; 'ok'
+```
+
+Expected: `ok`. Record which curl was used: `& $m { Get-ServiceCurlPath }` (path only). On Windows the curl must be the OpenSSL one from Git for Windows; the System32 `curl.exe` is refused with a message, which is itself a result to record. An exit code 60 means the CA bundle does not contain the API's issuing CA.
+
+**T21 Registered default and override.**
+
+```powershell
+Register-CustomService -ServiceName pingmtls -Environment test -BaseUrl '<MTLS_API_URL>' -ClientCertificate $cert -Transport Curl -CaBundle '<CA_BUNDLE>' -Force
+Invoke-APIRequest -Service pingmtls -Environment test -Endpoint '<MTLS_ENDPOINT>' -AuthType Certificate -Silent | Out-Null; 'curl default ok'
+Invoke-APIRequest -Service pingmtls -Environment test -Endpoint '<MTLS_ENDPOINT>' -AuthType Certificate -Transport DotNet -Silent | Out-Null; 'dotnet override ok'
+```
+
+Expected: both lines. Add `pingmtls` to the cleanup list.
+
+**T22 Windows only: a certificate-store certificate.** The person gives a thumbprint of a certificate in `Cert:\CurrentUser\My` with a private key. Repeat T19 and T20 with `$cert = New-ServiceClientCertificate -Thumbprint '<THUMBPRINT>'`. Expected: T19 passes whether or not the key is exportable; T20 passes only if the key is exportable, otherwise it stops with a message saying so. Record both outcomes. Also record whether a PFX load left a key container in the profile (`certutil -user -store My` is not needed; note only if the person sees one).
+
+## 9b. Optional: PingFederate certificate client authentication (Appendix)
+
+Run these only if the PingFederate client can authenticate by certificate. The person configures the client in PingFederate first: for `private_key_jwt`, register the certificate (or its JWKS) on the client and allow the signing algorithm; for `tls_client_auth`, set the client's authentication to mutual TLS and bind the certificate.
+
+**T23 private_key_jwt.**
+
+```powershell
+$cert = New-ServiceClientCertificate -PfxPath '<PFX_PATH>'
+Register-CustomService -ServiceName pingtest -Environment test -BaseUrl '<PF_BASE_URL>' -SSOProvider PingFederate `
+    -OidcClientId '<CLIENT_ID>' -OidcClientAuth private_key_jwt -ClientCertificate $cert `
+    -OidcRedirectUri '<REDIRECT_URI>' -OidcScope 'openid profile ad' -Force
+& $m { Invoke-PingFederateProbe -Service pingtest -Environment test }
+```
+
+HUMAN: sign in at the browser. Expected: the probe reports `Client auth : jwt` and a granted scope. If PingFederate answers `invalid_client`, the message already hints at the cause; record the exact error and answer **open item 18**: which `aud` does PingFederate accept (the token endpoint, the issuer, or either), and does it need a `kid` rather than matching by certificate? Do not record the client id.
+
+**T24 tls_client_auth.** PingFederate often serves mutual TLS on a separate port. If the token endpoint for certificate clients is on another URL, say so: the module currently uses one authority for the authorization and the token calls (open item 18), so this may need a change. Otherwise:
+
+```powershell
+Register-CustomService -ServiceName pingtest -Environment test -BaseUrl '<PF_BASE_URL>' -SSOProvider PingFederate `
+    -OidcClientId '<CLIENT_ID>' -OidcClientAuth tls_client_auth -ClientCertificate $cert `
+    -OidcRedirectUri '<REDIRECT_URI>' -Force
+& $m { Invoke-PingFederateProbe -Service pingtest -Environment test }
+```
+
+Expected: `Client auth : tls`. Repeat once with `-Transport Curl -CaBundle '<CA_BUNDLE>'` on the registration. Record the outcomes.
 
 ## 10. Report (return this, filled in, to the person)
 
@@ -288,6 +363,13 @@ Module version / branch:
 | T15 Unknown scope warning | | |
 | T16 Probe endpoint / 403 | | |
 | T17 Persistence round trip | | |
+| T18 Certificate opens (appendix) | | |
+| T19 mTLS call, .NET (appendix) | | |
+| T20 mTLS call, curl (appendix) | | curl used: |
+| T21 Registered default and override (appendix) | | |
+| T22 Store certificate, Windows (appendix) | | |
+| T23 PingFederate private_key_jwt (appendix) | | accepted aud: |
+| T24 PingFederate tls_client_auth (appendix) | | |
 | Cleanup | | |
 
 Questions to answer in plain words:
@@ -296,5 +378,6 @@ Questions to answer in plain words:
 3. Which of the scopes ad, app, brf, camkeys, coi, eci, lac, profile, rel were granted, and which refused?
 4. Do the scope names work as plain names (app, brf, ...), or are literal strings such as app:app needed?
 5. Which of the expected claims (groups, displayName, dutyOrg, email, employeeType, givenName, nationality, org, preferred_username, securityClearance, uid) were absent from the id_token?
-6. Anything surprising, any error message that was unclear, any step that needed a workaround.
+6. If the appendices were run: did the curl transport work on this host (which curl, which TLS version if known), did the certificate load on this edition of PowerShell, and what did PingFederate accept as the assertion audience?
+7. Anything surprising, any error message that was unclear, any step that needed a workaround.
 ```

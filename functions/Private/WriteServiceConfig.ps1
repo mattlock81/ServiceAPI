@@ -54,10 +54,14 @@ function Write-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.6.0
-        Date        : 15-OCT-26
+        Version     : 1.7.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        1.7.0 | 16OCT26 | Added optional -OidcClientId, -OidcClientAuth, -Transport, -CaBundle and
+                          -ClientCertificate, persisted when supplied. The client certificate is stored as
+                          its location (Source, Path, KeyPath, Thumbprint, Subject, Store); a password is
+                          never written.
         1.6.0 | 15OCT26 | Added optional -OidcAuthority, -OidcScope and -OidcRedirectUri, persisted
                           to the services.json entry when supplied. Used by the PingFederate provider.
         1.5.1 | 08OCT26 | Help examples now use the example service name aria. No code change.
@@ -90,7 +94,12 @@ function Write-ServiceConfig {
         [string]$ProbeEndpoint,
         [string]$OidcAuthority,
         [string]$OidcScope,
-        [string]$OidcRedirectUri
+        [string]$OidcRedirectUri,
+        [string]$OidcClientId,
+        [string]$OidcClientAuth,
+        [string]$Transport,
+        [string]$CaBundle,
+        [object]$ClientCertificate
     )
 
     $configDir  = $script:ServiceApiConfigPath
@@ -133,6 +142,27 @@ function Write-ServiceConfig {
     }
     if (-not [string]::IsNullOrWhiteSpace($OidcRedirectUri)) {
         $entry['OidcRedirectUri'] = $OidcRedirectUri
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OidcClientId)) {
+        $entry['OidcClientId'] = $OidcClientId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OidcClientAuth)) {
+        $entry['OidcClientAuth'] = $OidcClientAuth
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Transport)) {
+        $entry['Transport'] = $Transport
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CaBundle)) {
+        $entry['CaBundle'] = $CaBundle
+    }
+    if ($ClientCertificate) {
+        # Where the certificate lives, never the password
+        $certEntry = [ordered]@{ Source = [string]$ClientCertificate.Source }
+        foreach ($field in 'Path', 'KeyPath', 'Thumbprint', 'Subject', 'Store') {
+            $value = $ClientCertificate.$field
+            if (-not [string]::IsNullOrWhiteSpace([string]$value)) { $certEntry[$field] = [string]$value }
+        }
+        $entry['ClientCertificate'] = $certEntry
     }
 
     $current[$ServiceName][$Environment] = $entry

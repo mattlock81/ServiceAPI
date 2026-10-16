@@ -28,7 +28,20 @@ function Invoke-PingFederateLogin {
         The OAuth client id.
 
     .PARAMETER ClientSecret
-        The OAuth client secret, as a SecureString.
+        The OAuth client secret, as a SecureString. Required for -ClientAuth secret.
+
+    .PARAMETER ClientAuth
+        How the client authenticates at the token endpoint: secret (default), private_key_jwt (a
+        signed client assertion; needs -SigningCertificate) or tls_client_auth (mutual TLS; needs a
+        certificate in -TransportOptions).
+
+    .PARAMETER SigningCertificate
+        The opened client certificate (Get-ServiceClientCertificate) whose private key signs the
+        assertion for private_key_jwt.
+
+    .PARAMETER TransportOptions
+        Optional. The transport, client certificate and CA bundle for every call to PingFederate
+        (see Resolve-ServiceTransportOptions).
 
     .PARAMETER Scope
         The requested scopes. Passed through Resolve-PingFederateScope. Defaults to
@@ -68,10 +81,14 @@ function Invoke-PingFederateLogin {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 15-OCT-26
+        Version     : 2.0.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        2.0.0 | 16OCT26 | Added -ClientAuth (secret, private_key_jwt, tls_client_auth), -SigningCertificate and
+                          -TransportOptions. -ClientSecret is optional (required only for secret). The
+                          assertion audience is the token endpoint and the issuer. AuthMode now also reports
+                          'jwt' and 'tls'. No change for callers that omit the new parameters.
         1.0.0 | 15OCT26 | Initial version. PingFederate provider: authorization code login with
                           silent refresh. Not yet verified against a PingFederate server.
     #>
@@ -84,8 +101,14 @@ function Invoke-PingFederateLogin {
         [Parameter(Mandatory)]
         [string]$ClientId,
 
-        [Parameter(Mandatory)]
         [securestring]$ClientSecret,
+
+        [ValidateSet('secret', 'private_key_jwt', 'tls_client_auth')]
+        [string]$ClientAuth = 'secret',
+
+        [object]$SigningCertificate,
+
+        [hashtable]$TransportOptions,
 
         [string[]]$Scope = @('openid', 'profile', 'ad'),
 
@@ -93,7 +116,7 @@ function Invoke-PingFederateLogin {
 
         [securestring]$RefreshToken,
 
-        [ValidateSet('basic', 'post')]
+        [ValidateSet('basic', 'post', 'jwt', 'tls', '')]
         [string]$AuthMode,
 
         [ValidateRange(30, 1800)]
@@ -102,7 +125,9 @@ function Invoke-PingFederateLogin {
 
     $Authority = $Authority.TrimEnd('/')
     $scopeText = Resolve-PingFederateScope -Scope $Scope
-    $endpoint  = Get-PingFederateEndpoint -Authority $Authority
+    $endpointParams = @{ Authority = $Authority }
+    if ($TransportOptions) { $endpointParams['TransportOptions'] = $TransportOptions }
+    $endpoint  = Get-PingFederateEndpoint @endpointParams
     Write-Verbose "PingFederate endpoints from [$($endpoint.Source)]: token endpoint [$($endpoint.TokenEndpoint)]."
 
     function New-RandomToken {
@@ -112,10 +137,28 @@ function Invoke-PingFederateLogin {
         [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
     }
 
+    # What the token endpoint call needs to authenticate the client, whichever method is in use
+    $tokenAuth = @{ ClientId = $ClientId; ClientAuth = $ClientAuth }
+    if ($TransportOptions) { $tokenAuth['TransportOptions'] = $TransportOptions }
+    switch ($ClientAuth) {
+        'secret' {
+            if (-not $ClientSecret) { throw "ClientAuth secret needs the client secret. Store it with Set-ServiceCredential -AuthType Basic -Label oidcclient." }
+            $tokenAuth['ClientSecret'] = $ClientSecret
+        }
+        'private_key_jwt' {
+            if (-not $SigningCertificate) { throw "ClientAuth private_key_jwt needs a client certificate. Register one with Register-CustomService -ClientCertificate." }
+            $tokenAuth['SigningCertificate'] = $SigningCertificate
+            $tokenAuth['Audience']           = @($endpoint.TokenEndpoint, $endpoint.Issuer | Select-Object -Unique)
+        }
+        'tls_client_auth' {
+            if (-not ($TransportOptions -and $TransportOptions['Certificate'])) { throw "ClientAuth tls_client_auth needs a client certificate. Register one with Register-CustomService -ClientCertificate." }
+        }
+    }
+
     $response = $null
     $source   = $null
     $nonce    = $null
-    $mode     = $AuthMode
+    $mode     = if ($ClientAuth -eq 'secret' -and $AuthMode -in @('basic', 'post')) { $AuthMode } else { '' }
 
     # -------------------------------------------------------------------------
     # Path 1: silent refresh with a held refresh token
@@ -125,8 +168,8 @@ function Invoke-PingFederateLogin {
             grant_type    = 'refresh_token'
             refresh_token = (ConvertSecureStringToPlainText -SecureString $RefreshToken)
         }
-        $refreshed = Invoke-PingFederateTokenRequest -TokenEndpoint $endpoint.TokenEndpoint -ClientId $ClientId `
-            -ClientSecret $ClientSecret -Body $refreshBody -AuthMode $mode -NullOnInvalidGrant
+        $refreshed = Invoke-PingFederateTokenRequest -TokenEndpoint $endpoint.TokenEndpoint @tokenAuth `
+            -Body $refreshBody -AuthMode $mode -NullOnInvalidGrant
 
         if ($refreshed) {
             $response = $refreshed.Response
@@ -160,8 +203,8 @@ function Invoke-PingFederateLogin {
 
         $code = Wait-PingFederateCallback -RedirectUri $RedirectUri -State $state -TimeoutSeconds $TimeoutSeconds -AuthorizationUrl $authUrl
 
-        $exchanged = Invoke-PingFederateTokenRequest -TokenEndpoint $endpoint.TokenEndpoint -ClientId $ClientId `
-            -ClientSecret $ClientSecret -AuthMode $mode -Body @{
+        $exchanged = Invoke-PingFederateTokenRequest -TokenEndpoint $endpoint.TokenEndpoint @tokenAuth `
+            -AuthMode $mode -Body @{
                 grant_type   = 'authorization_code'
                 code         = $code
                 redirect_uri = $RedirectUri

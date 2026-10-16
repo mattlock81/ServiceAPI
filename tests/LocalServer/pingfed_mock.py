@@ -11,6 +11,14 @@ Ports (the "personality" differs by port):
 Client: id 'test-client', secret 'secret:with:colons'. The client may request openid, profile, ad
 and app; a requested scope outside that set is left out of the granted 'scope'.
 
+Certificate client authentication (only when a certificate directory from make-client-certs.sh is
+given: python3 pingfed_mock.py <certdir>):
+  private_key_jwt   a client_assertion signed by client-rsa.crt (RS256) or client-ec.crt (ES256) is
+                    accepted on every port; the audience must be the token endpoint or the issuer
+  18094  tls        HTTPS, client certificate OPTIONAL at the TLS layer (the authorization endpoint
+                    needs none); the token endpoint accepts only a client certificate issued by the
+                    test CA with CN svc-client-rsa (tls_client_auth). Secret methods are refused.
+
 Routes:
   GET  /.well-known/openid-configuration
   GET  /as/authorization.oauth2   validates the request, then redirects to redirect_uri with a code
@@ -18,11 +26,62 @@ Routes:
   GET  /_log                      the token-endpoint requests seen (grant type and auth method only)
   GET  /_reset                    clears the log and revokes every refresh token
 """
-import base64, json, sys, threading, time, secrets
+import base64, json, ssl, sys, threading, time, secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs, urlencode
 
 CLIENT_ID, CLIENT_SECRET = 'test-client', 'secret:with:colons'
+CERTDIR = sys.argv[1] if len(sys.argv) > 1 else None
+SEEN_JTI = set()
+PUBKEYS = {}
+if CERTDIR:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding, ec
+    from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+    for alg, name in (('RS256', 'client-rsa.crt'), ('ES256', 'client-ec.crt')):
+        with open(f'{CERTDIR}/{name}', 'rb') as f:
+            PUBKEYS[alg] = x509.load_pem_x509_certificate(f.read()).public_key()
+
+
+def b64d(text):
+    return base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
+
+
+def verify_assertion(token, issuer):
+    """True when token is a valid, unused client assertion for CLIENT_ID."""
+    if not PUBKEYS:
+        return False
+    try:
+        head_b64, body_b64, sig_b64 = token.split('.')
+        head, body = json.loads(b64d(head_b64)), json.loads(b64d(body_b64))
+        signing_input = f'{head_b64}.{body_b64}'.encode()
+        sig = b64d(sig_b64)
+        if body.get('iss') != CLIENT_ID or body.get('sub') != CLIENT_ID:
+            return False
+        aud = body.get('aud')
+        aud = aud if isinstance(aud, list) else [aud]
+        if not ({issuer, issuer + '/as/token.oauth2'} & set(aud)):
+            return False
+        if int(body.get('exp', 0)) < time.time() or not body.get('jti'):
+            return False
+        with LOCK:
+            if body['jti'] in SEEN_JTI:
+                return False
+            SEEN_JTI.add(body['jti'])
+        key = PUBKEYS.get(head.get('alg'))
+        if key is None:
+            return False
+        if head['alg'] == 'RS256':
+            key.verify(sig, signing_input, padding.PKCS1v15(), hashes.SHA256())
+        else:
+            if len(sig) != 64:
+                return False
+            r, sv = int.from_bytes(sig[:32], 'big'), int.from_bytes(sig[32:], 'big')
+            key.verify(encode_dss_signature(r, sv), signing_input, ec.ECDSA(hashes.SHA256()))
+        return True
+    except Exception:
+        return False
 ALLOWED = {'openid', 'profile', 'ad', 'app'}
 LOCK = threading.Lock()
 CODES, REFRESH, LOG = {}, {}, []
@@ -34,8 +93,8 @@ def make_jwt(claims):
     head = b64(json.dumps({'alg': 'none', 'typ': 'JWT'}).encode())
     return head + '.' + b64(json.dumps(claims).encode()) + '.x'
 
-def make_handler(port, personality):
-    issuer = f'http://127.0.0.1:{port}'
+def make_handler(port, personality, scheme='http', host='127.0.0.1'):
+    issuer = f'{scheme}://{host}:{port}'
 
     class H(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -99,7 +158,24 @@ def make_handler(port, personality):
 
             # Client authentication
             auth, method = self.headers.get('Authorization', ''), None
-            if auth.startswith('Basic '):
+            if form.get('client_assertion'):
+                if form.get('client_assertion_type') == 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer' \
+                        and form.get('client_id') in (None, CLIENT_ID) and verify_assertion(form['client_assertion'], issuer):
+                    method = 'jwt'
+            elif personality == 'tls':
+                peer = None
+                try:
+                    peer = self.connection.getpeercert()
+                except Exception:
+                    pass
+                cn = None
+                for rdn in (peer or {}).get('subject', ()):
+                    for key, value in rdn:
+                        if key == 'commonName':
+                            cn = value
+                if form.get('client_id') == CLIENT_ID and cn == 'svc-client-rsa':
+                    method = 'tls'
+            elif auth.startswith('Basic '):
                 try:
                     cid, _, sec = base64.b64decode(auth[6:]).decode().partition(':')
                     from urllib.parse import unquote
@@ -114,7 +190,7 @@ def make_handler(port, personality):
             with LOCK:
                 LOG.append({'grant': form.get('grant_type'), 'auth': method or 'none'})
 
-            if method is None or (method == 'basic' and personality == 'post'):
+            if method is None or (method == 'basic' and personality == 'post') or (personality == 'tls' and method != 'tls'):
                 return self._oauth_error(401, 'invalid_client', 'client authentication failed')
 
             grant = form.get('grant_type')
@@ -153,6 +229,21 @@ def make_handler(port, personality):
 
     return H
 
+def serve_tls(port):
+    class Tls(ThreadingHTTPServer):
+        daemon_threads = True
+
+        def handle_error(self, request, client_address):
+            pass
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(f'{CERTDIR}/server.crt', f'{CERTDIR}/server.key')
+    ctx.load_verify_locations(f'{CERTDIR}/ca.crt')
+    ctx.verify_mode = ssl.CERT_OPTIONAL
+    srv = Tls(('127.0.0.1', port), make_handler(port, 'tls', 'https', 'localhost'))
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+
 def serve(port, personality):
     srv = ThreadingHTTPServer(('127.0.0.1', port), make_handler(port, personality))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -160,5 +251,7 @@ def serve(port, personality):
 if __name__ == '__main__':
     for port, personality in ((18090, 'both'), (18091, 'post'), (18092, 'norefresh'), (18093, 'badnonce')):
         serve(port, personality)
+    if CERTDIR:
+        serve_tls(18094)
     print('pingfed mock ready', flush=True)
     threading.Event().wait()

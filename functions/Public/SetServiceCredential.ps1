@@ -62,9 +62,11 @@ function Set-ServiceCredential {
         (and optionally -SSOTenant).
 
         The PingFederate provider signs in with the OpenID Connect authorization code grant for a
-        confidential client. The OAuth client is read from a Basic credential under the label
-        'oidcclient' (user name = client id, password = client secret), so the first SSO call can
-        bootstrap it through the usual prompt. The browser opens on a loopback listener for the
+        confidential client. By default the OAuth client is read from a Basic credential under the
+        label 'oidcclient' (user name = client id, password = client secret), so the first SSO call
+        can bootstrap it through the usual prompt. With Register-CustomService -OidcClientAuth
+        private_key_jwt or tls_client_auth the client proves itself with its certificate instead
+        (client id from -OidcClientId, certificate from -ClientCertificate) and no secret is used. The browser opens on a loopback listener for the
         redirect URI registered on the client (Register-CustomService -OidcRedirectUri); a cached
         refresh token, when PingFederate issues one, is then exchanged silently. The refresh
         token is held in memory only. The first login is interactive.
@@ -123,10 +125,14 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.12.0
-        Date        : 15-OCT-26
+        Version     : 2.13.0
+        Date        : 16-OCT-26
 
         CHANGE LOG
+        2.13.0 | 16OCT26 | PingFederate client authentication by certificate: OidcClientAuth private_key_jwt
+                          (signed client assertion) and tls_client_auth (mutual TLS), with the client id from
+                          OidcClientId and the certificate from ClientCertificate. The service's transport and
+                          CA bundle now apply to every call to PingFederate. A client secret stays the default.
         2.12.0 | 15OCT26 | PingFederate support: new SSO provider branch. The OAuth client is read with
                           Get-PingFederateClient (Basic label oidcclient, from the chosen vault) and
                           signed in by Invoke-PingFederateLogin. The cache entry also keeps the
@@ -486,7 +492,14 @@ function Set-ServiceCredential {
             # The OAuth client lives in the vault under the Basic label 'oidcclient' (user name =
             # client id, password = client secret), mirroring the Aria 'ssoidentity' lookup. It is
             # read on every login and not cached.
-            $pingClient = Get-PingFederateClient -Service $Service -Environment $Environment -Vault $Vault
+            # How the client authenticates at the token endpoint: a secret (default), a signed JWT, or mutual TLS
+            $pingAuth = if ($pingEntry.OidcClientAuth) { [string]$pingEntry.OidcClientAuth } else { 'secret' }
+
+            # The transport (curl, CA bundle) applies to every call to PingFederate. The certificate is
+            # presented on the connection only for tls_client_auth, so it is not opened otherwise.
+            $pingTransport = @{ Service = $Service; Environment = $Environment; Vault = $Vault }
+            if ($pingAuth -ne 'tls_client_auth') { $pingTransport['SkipCertificate'] = $true }
+            $pingTransportOptions = Resolve-ServiceTransportOptions @pingTransport
 
             $pingKey    = New-ServiceKey -Service $Service -Environment $Environment
             $pingCached = $null
@@ -495,9 +508,28 @@ function Set-ServiceCredential {
             }
 
             $pingParams = @{
-                Authority    = $(if ($pingEntry.OidcAuthority) { $pingEntry.OidcAuthority } else { $pingEntry.BaseUrl })
-                ClientId     = $pingClient.ClientId
-                ClientSecret = $pingClient.ClientSecret
+                Authority        = $(if ($pingEntry.OidcAuthority) { $pingEntry.OidcAuthority } else { $pingEntry.BaseUrl })
+                ClientAuth       = $pingAuth
+                TransportOptions = $pingTransportOptions
+            }
+            if ($pingAuth -eq 'secret') {
+                # The client lives in the vault under the Basic label 'oidcclient'
+                $pingClient = Get-PingFederateClient -Service $Service -Environment $Environment -Vault $Vault
+                $pingParams['ClientId']     = $pingClient.ClientId
+                $pingParams['ClientSecret'] = $pingClient.ClientSecret
+            } else {
+                if ([string]::IsNullOrWhiteSpace($pingEntry.OidcClientId)) {
+                    throw "OidcClientAuth $pingAuth needs the client id. Register it with Register-CustomService -OidcClientId <id>."
+                }
+                if (-not $pingEntry.ClientCertificate) {
+                    throw "OidcClientAuth $pingAuth needs a client certificate for [$Service-$Environment]. Register one with Register-CustomService -ClientCertificate."
+                }
+                $pingParams['ClientId'] = $pingEntry.OidcClientId
+                if ($pingAuth -eq 'private_key_jwt') {
+                    # Signing needs the key opened in .NET (a PEM pair needs PowerShell 7), whichever transport is used
+                    $pingParams['SigningCertificate'] = Get-ServiceClientCertificate -Certificate $pingEntry.ClientCertificate `
+                        -Service $Service -Environment $Environment -Vault $Vault
+                }
             }
             if ($pingEntry.OidcScope)       { $pingParams['Scope']       = $pingEntry.OidcScope }
             if ($pingEntry.OidcRedirectUri) { $pingParams['RedirectUri'] = $pingEntry.OidcRedirectUri }

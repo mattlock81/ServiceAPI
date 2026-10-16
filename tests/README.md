@@ -11,6 +11,8 @@ Windows for that reason. Nothing here needs a real service or credentials.
 | `LocalServer/` (AriaApiToken) | The `AriaApiToken` provider against the server's emulation of three Aria deployments (ports 18080 to 18082): exchange shapes, bearer choice, caching, stale refresh, a fresh process, bad and missing tokens, `-Vault`, the probe | as above |
 | `LocalServer/` (PingFederate) | The `PingFederate` provider against `pingfed_mock.py` (ports 18090 to 18093): scope catalogue, discovery and its fallback, registration persistence, browser login, silent refresh, client authentication fallback, no refresh token, nonce and secret failures, the redirect listener. The browser and the vault are replaced inside the module, so no `SecretManagement` is needed | Python 3 |
 | `LocalServer/` (AriaOidc login) | The AriaOidc browser path of `Invoke-AriaOidcLogin`: the portal URL reaches the browser opener, the courier's token pair comes back, and the no-browser message prints the URL. The browser is replaced inside the module and a job stands in for the courier, so no server, vault or `SecretManagement` is needed | none |
+| `LocalServer/` (client certificates) | Mutual TLS and the curl/OpenSSL transport against `mtls_server.py` (ports 18447 to 18449: certificate required, optional, TLS 1.3 only): the descriptor, PFX with and without a password, PEM pair plain and encrypted, an EC key, the certificate store by thumbprint and subject, an untrusted certificate, the registered default and per-request override, persistence with no password, and for curl the same sources, a TLS 1.3 only server, the error surface, a line-break header refused, no temporary files left, and no secret on curl's command line (read from `/proc`) | Python 3 with `cryptography`, OpenSSL, curl built with OpenSSL |
+| `LocalServer/` (PingFederate certificates) | `private_key_jwt` (RS256 and ES256 assertions checked against the certificate, sign-in, refresh, refusal) and `tls_client_auth` (.NET and curl, refresh, refusal), the secret client over the curl transport, and persistence. Needs the mock started with the certificate directory | as above |
 | `Vault/` | Vault selection: saved default, `-Vault`, the recorded-vault rule, scoped reads of a duplicate secret name, the legacy index migration, and unattended behaviour with no vault, one vault, two vaults and a vault that is no longer registered | `SecretManagement` and `SecretManagement.KeePass` |
 
 `PingFederate-Live-Test-Plan.md` is a runbook for an AI tool (or a person) to test the PingFederate provider against a real server, with human steps marked and a report template. It needs a reachable PingFederate and a confidential client; it prints no tokens, secrets or claim values.
@@ -36,7 +38,14 @@ python3 tests/LocalServer/pingfed_mock.py &
 pwsh -NoProfile -NonInteractive -File tests/LocalServer/Invoke-PingFederateTests.ps1 -ModulePath ./ServiceAPI.psd1
 # AriaOidc browser login (no server or vault needed)
 pwsh -NoProfile -NonInteractive -File tests/LocalServer/Invoke-AriaOidcLoginTests.ps1 -ModulePath ./ServiceAPI.psd1
-kill %1 %2
+# Client certificates and the curl transport (own mutual-TLS server)
+tests/LocalServer/make-client-certs.sh /tmp/svc-mtls
+python3 tests/LocalServer/mtls_server.py /tmp/svc-mtls &
+pwsh -NoProfile -NonInteractive -File tests/LocalServer/Invoke-ClientCertificateTests.ps1 -ModulePath ./ServiceAPI.psd1 -CertDir /tmp/svc-mtls
+# PingFederate certificate client authentication (the mock needs the certificate directory)
+python3 tests/LocalServer/pingfed_mock.py /tmp/svc-mtls &
+pwsh -NoProfile -NonInteractive -File tests/LocalServer/Invoke-PingFederateCertTests.ps1 -ModulePath ./ServiceAPI.psd1 -CertDir /tmp/svc-mtls
+kill %1 %2 %3 %4
 ```
 
 `SSL_CERT_FILE` makes .NET trust only the two test CAs, so the self-signed and wrong-name
