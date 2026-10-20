@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '3.0.1'
+ModuleVersion = '3.1.0'
 
 # Supported PSEditions: Windows PowerShell 5.1 (Desktop) and PowerShell 7 (Core, Windows and Linux)
 CompatiblePSEditions = 'Desktop', 'Core'
@@ -107,7 +107,18 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '3.0.1 | 10OCT26 | Adds vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access.
+        ReleaseNotes = '3.1.0 | 21OCT26 | Client certificates (mutual TLS), an opt-in curl/OpenSSL transport and the PingFederate
+                  SSO provider. New public function New-ServiceClientCertificate and AuthType Certificate.
+                  New -Transport, -ClientCertificate and -CaBundle parameters on Invoke-APIRequest and
+                  Register-CustomService. -Transport Curl sends through a curl built with OpenSSL, so hosts
+                  whose Windows TLS stack lacks TLS 1.3 can be reached. The PingFederate provider signs in with
+                  OpenID Connect (authorization code) using a client secret or a client certificate
+                  (private_key_jwt or tls_client_auth); Register-CustomService gains -OidcAuthority, -OidcScope,
+                  -OidcRedirectUri, -OidcClientId and -OidcClientAuth. Fixes the AriaOidc browser login, which
+                  failed because a closure could not call the private Open-ServiceApiBrowser function. Verified
+                  against local test servers on PowerShell 7 on Linux only; not tested on Windows, on Windows
+                  PowerShell 5.1 or against a real server. The Aria login calls still use the .NET transport.
+3.0.1 | 10OCT26 | Adds vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access.
 3.0.0 | 08OCT26 | Linux support. The module now loads on Windows and on Linux. RHEL-family Linux is the
                   target (RHEL, AlmaLinux, Rocky, Fedora, CentOS, Oracle Linux); other Linux distributions load
                   with a warning, and macOS is refused. Phase 0.6 of the loader detects the platform and sets
