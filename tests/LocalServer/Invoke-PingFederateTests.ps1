@@ -60,6 +60,11 @@ function Set-ModuleOverrides {
 Set-ModuleOverrides
 function Opens { & $m { $script:BrowserOpens } }
 function Reg($svc, $port, $extra = @{}) {
+    # The default redirect port is 8080, which may be taken on the test host, so keep the suite on
+    # 47812 unless a test names its own redirect URI or port
+    if (-not $extra.ContainsKey('OidcRedirectUri') -and -not $extra.ContainsKey('OidcRedirectPort')) {
+        $extra = $extra + @{ OidcRedirectPort = 47812 }
+    }
     Register-CustomService -ServiceName $svc -BaseUrl "${base}:$port" -SSOProvider PingFederate -Force @extra | Out-Null
 }
 function Cache($svc) { & $m { param($k) $global:ServiceSSOTokens[$k] } "$svc-prod" }
@@ -106,6 +111,44 @@ T 'Oidc settings survive a module reload (Phase 5)' {
 }
 $m = Get-Module ServiceAPI
 T 'Non-http OidcAuthority is refused' { (ErrorOf { Register-CustomService -ServiceName pingbad -BaseUrl "${base}:18090" -SSOProvider PingFederate -OidcAuthority 'ftp://x' -Force }) -match 'must start with http' }
+
+'--- redirect port ---'
+T 'Redirect URI: 8080 by default, from a port, from a URI, and with an override' {
+    $r = & $m { @(
+        (Resolve-PingFederateRedirectUri),
+        (Resolve-PingFederateRedirectUri -RedirectPort 9090),
+        (Resolve-PingFederateRedirectUri -RedirectUri 'http://localhost:47900/cb'),
+        (Resolve-PingFederateRedirectUri -RedirectUri 'http://localhost:47900/cb' -RedirectPort 9090 -PortOverridesUri),
+        (Resolve-PingFederateRedirectUri -RedirectUri 'http://localhost:47900/cb' -RedirectPort 47900)
+    ) }
+    ($r -join ' ') -eq 'http://127.0.0.1:8080/callback http://127.0.0.1:9090/callback http://localhost:47900/cb http://localhost:9090/cb http://localhost:47900/cb'
+}
+T 'A port that disagrees with the port in the URI is refused' {
+    (ErrorOf { & $m { Resolve-PingFederateRedirectUri -RedirectUri 'http://127.0.0.1:47900/callback' -RedirectPort 9090 } }) -match 'names port 47900 but port 9090'
+}
+T 'An out-of-range port is refused' { (ErrorOf { & $m { Resolve-PingFederateRedirectUri -RedirectPort 70000 } }) -match 'RedirectPort' }
+T 'OidcRedirectPort persists, and a clashing URI is refused at registration' {
+    Register-CustomService -ServiceName pingport -BaseUrl "${base}:18090" -SSOProvider PingFederate -OidcRedirectPort 47901 -Persistent -Force | Out-Null
+    $e = (& $m { Read-ServiceConfig })['pingport']['prod']
+    $clash = ErrorOf { Register-CustomService -ServiceName pingclash -BaseUrl "${base}:18090" -SSOProvider PingFederate -OidcRedirectUri 'http://127.0.0.1:47900/callback' -OidcRedirectPort 47901 -Force }
+    ($e.OidcRedirectPort -eq 47901) -and ($clash -match 'names port 47900')
+}
+T 'OidcRedirectPort survives a module reload (Phase 5)' {
+    Import-Module $ModulePath -Force 3>$null
+    Set-ModuleOverrides
+    $global:ServiceRegistry['pingport']['prod'].OidcRedirectPort -eq 47901
+}
+$m = Get-Module ServiceAPI
+Reg 'pingportreg' 18090 @{ OidcRedirectPort = 47815 }
+T 'A sign-in uses the port saved with the service' {
+    $out = Set-ServiceCredential -Service pingportreg -Environment prod -AuthType SSO -Force -Verbose 4>&1 3>&1 | Out-String
+    ($out -match [regex]::Escape('PingFederate redirect URI: [http://127.0.0.1:47815/callback]')) -and [bool](Cache 'pingportreg')
+}
+Reg 'pingportovr' 18090 @{ OidcRedirectPort = 47815 }
+T 'A port given to the sign-in overrides the saved port' {
+    $out = Set-ServiceCredential -Service pingportovr -Environment prod -AuthType SSO -OidcRedirectPort 47816 -Force -Verbose 4>&1 3>&1 | Out-String
+    ($out -match [regex]::Escape('PingFederate redirect URI: [http://127.0.0.1:47816/callback]')) -and [bool](Cache 'pingportovr')
+}
 
 '--- login ---'
 T 'Non-interactive session refuses a browser login' {

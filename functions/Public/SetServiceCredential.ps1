@@ -67,7 +67,7 @@ function Set-ServiceCredential {
         can bootstrap it through the usual prompt. With Register-CustomService -OidcClientAuth
         private_key_jwt or tls_client_auth the client proves itself with its certificate instead
         (client id from -OidcClientId, certificate from -ClientCertificate) and no secret is used. The browser opens on a loopback listener for the
-        redirect URI registered on the client (Register-CustomService -OidcRedirectUri); a cached
+        redirect URI registered on the client (Register-CustomService -OidcRedirectUri or -OidcRedirectPort, port 8080 by default; -OidcRedirectPort on this command overrides the port for one sign-in); a cached
         refresh token, when PingFederate issues one, is then exchanged silently. The refresh
         token is held in memory only. The first login is interactive.
 
@@ -93,6 +93,11 @@ function Set-ServiceCredential {
         An unregistered name is rejected with a warning and the credential stays in the session store.
         Applies to Basic and Token; SSO is never vault-stored.
 
+    .PARAMETER OidcRedirectPort
+        Optional. PingFederate SSO only. The loopback port to use for this sign-in, replacing the port
+        saved with the service (Register-CustomService -OidcRedirectPort) and the 8080 default. The
+        redirect URI that results must be registered on the PingFederate client. Ignored, with a
+        warning, for any other provider.
 
     .PARAMETER Environment
         The environment: qa, prod, dev, or global (Basic Auth only). Defaults to prod.
@@ -125,10 +130,13 @@ function Set-ServiceCredential {
     .NOTES
         Author      : Matthew Sillett
         Organisation: Australian Signals Directorate
-        Version     : 2.13.0
-        Date        : 16-OCT-26
+        Version     : 2.14.0
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        2.14.0 | 21OCT26 | Added -OidcRedirectPort: the loopback port for one PingFederate sign-in, replacing the
+                          port saved with the service (Register-CustomService -OidcRedirectPort) and the 8080
+                          default. A warning, and no effect, for any other provider.
         2.13.0 | 16OCT26 | PingFederate client authentication by certificate: OidcClientAuth private_key_jwt
                           (signed client assertion) and tls_client_auth (mutual TLS), with the client id from
                           OidcClientId and the certificate from ClientCertificate. The service's transport and
@@ -229,7 +237,10 @@ function Set-ServiceCredential {
                     }
             }
         })]
-        [string]$Vault
+        [string]$Vault,
+
+        [ValidateRange(1, 65535)]
+        [int]$OidcRedirectPort
     )
 
     # =========================================================================
@@ -333,6 +344,10 @@ function Set-ServiceCredential {
             } else {
                 Write-Warning "Service [$Service-$Environment] is not in the registry. Provider registered for this session only."
             }
+        }
+
+        if ($PSBoundParameters.ContainsKey('OidcRedirectPort') -and $provider -ne 'PingFederate') {
+            Write-Warning "-OidcRedirectPort is only used by the PingFederate SSO provider and is ignored for provider [$provider]."
         }
 
         # Obtain token via provider dispatch
@@ -533,6 +548,13 @@ function Set-ServiceCredential {
             }
             if ($pingEntry.OidcScope)       { $pingParams['Scope']       = $pingEntry.OidcScope }
             if ($pingEntry.OidcRedirectUri) { $pingParams['RedirectUri'] = $pingEntry.OidcRedirectUri }
+            # The port assigned to the application: this command's, else the one saved with the service
+            if ($PSBoundParameters.ContainsKey('OidcRedirectPort')) {
+                $pingParams['RedirectPort']     = $OidcRedirectPort
+                $pingParams['PortOverridesUri'] = $true
+            } elseif ($pingEntry.OidcRedirectPort) {
+                $pingParams['RedirectPort'] = [int]$pingEntry.OidcRedirectPort
+            }
             if ($pingCached) {
                 if ($pingCached.RefreshToken) { $pingParams['RefreshToken'] = $pingCached.RefreshToken }
                 if ($pingCached.AuthMode)     { $pingParams['AuthMode']     = $pingCached.AuthMode }

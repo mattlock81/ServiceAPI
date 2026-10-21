@@ -30,6 +30,11 @@ function Invoke-PingFederateProbe {
     .PARAMETER Vault
         Optional. The registered vault holding the client credential.
 
+    .PARAMETER OidcRedirectPort
+        Optional. The loopback port to use for this run, replacing the port saved with the service and
+        the 8080 default. The redirect URI that results is shown in the report and must be registered
+        on the PingFederate client.
+
     .EXAMPLE
         & (Get-Module ServiceAPI) { Invoke-PingFederateProbe -Service ping }
 
@@ -50,10 +55,12 @@ function Invoke-PingFederateProbe {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 15-OCT-26
+        Version     : 1.1.0
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        1.1.0 | 21OCT26 | Added -OidcRedirectPort, passed to Set-ServiceCredential for the sign-in, and a
+                          Redirect URI line in the report so the URI can be checked against the client registration.
         1.0.0 | 15OCT26 | Initial version. PingFederate provider: live diagnostic.
     #>
 
@@ -64,7 +71,10 @@ function Invoke-PingFederateProbe {
 
         [string]$Environment = 'prod',
 
-        [string]$Vault
+        [string]$Vault,
+
+        [ValidateRange(1, 65535)]
+        [int]$OidcRedirectPort
     )
 
     $entry = $null
@@ -82,12 +92,20 @@ function Invoke-PingFederateProbe {
     Write-Host "Authority       : $authority"
     Write-Host "Endpoints from  : $($endpoint.Source)"
     Write-Host "Token endpoint  : $($endpoint.TokenEndpoint)"
+    $redirectParams = @{ RedirectUri = $entry.OidcRedirectUri; PortOverridesUri = [bool]$PSBoundParameters.ContainsKey('OidcRedirectPort') }
+    if ($PSBoundParameters.ContainsKey('OidcRedirectPort')) {
+        $redirectParams['RedirectPort'] = $OidcRedirectPort
+    } elseif ($entry.OidcRedirectPort) {
+        $redirectParams['RedirectPort'] = [int]$entry.OidcRedirectPort
+    }
+    Write-Host "Redirect URI    : $(Resolve-PingFederateRedirectUri @redirectParams)"
     if ($endpoint.AuthMethods.Count -gt 0) {
         Write-Host "Advertised auth : $($endpoint.AuthMethods -join ', ')"
     }
 
     $params = @{ Service = $Service; Environment = $Environment; AuthType = 'SSO'; Force = $true }
     if ($Vault) { $params['Vault'] = $Vault }
+    if ($PSBoundParameters.ContainsKey('OidcRedirectPort')) { $params['OidcRedirectPort'] = $OidcRedirectPort }
     Set-ServiceCredential @params
 
     $cached = $global:ServiceSSOTokens[(New-ServiceKey -Service $Service -Environment $Environment)]

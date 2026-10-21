@@ -22,7 +22,7 @@ Placeholders are in `<angle brackets>`. Never write a real host name, client id,
 | Name | Meaning | Value |
 |---|---|---|
 | `<PF_BASE_URL>` | PingFederate base URL, for example `https://host:9031` (no trailing path) | |
-| `<REDIRECT_URI>` | The redirect URI registered on the client. Must be `http` and `127.0.0.1` or `localhost` | default `http://127.0.0.1:47812/callback` |
+| `<REDIRECT_URI>` | The redirect URI registered on the client. Must be `http` and `127.0.0.1` or `localhost` | default `http://127.0.0.1:8080/callback`; the port assigned to the application can be given with `-OidcRedirectPort` |
 | `<API_URL>` | Optional. A second host whose API accepts the bearer. Leave empty to use PingFederate's own userinfo endpoint | |
 | `<API_ENDPOINT>` | Optional. A cheap read-only endpoint on `<API_URL>` (or `idp/userinfo.openid` on PingFederate) that returns 2xx for a valid bearer | `idp/userinfo.openid` |
 | `<VAULT>` | Optional. A registered SecretManagement vault name for the client credential | session only if empty |

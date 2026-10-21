@@ -49,7 +49,16 @@ function Invoke-PingFederateLogin {
 
     .PARAMETER RedirectUri
         The redirect URI registered on the client. Must be an http loopback address. Defaults to
-        http://127.0.0.1:47812/callback.
+        http://127.0.0.1:8080/callback (see Resolve-PingFederateRedirectUri).
+
+    .PARAMETER RedirectPort
+        Optional. The loopback port to listen on and to put in the redirect URI. It is the port
+        assigned to the application when the client was registered. With no -RedirectUri it gives
+        http://127.0.0.1:<port>/callback; with one it replaces the port in that URI.
+
+    .PARAMETER PortOverridesUri
+        Optional. Lets -RedirectPort replace a different port already named in -RedirectUri instead
+        of being refused. Used when a per-run port deliberately overrides a saved one.
 
     .PARAMETER RefreshToken
         Optional. A cached refresh token (SecureString) to try first.
@@ -74,6 +83,15 @@ function Invoke-PingFederateLogin {
             -Scope 'openid profile ad rel' -RedirectUri 'http://127.0.0.1:47900/callback' -Verbose
         Requests the 'rel' scope as well and uses another loopback port.
 
+    .EXAMPLE
+        $login = Invoke-PingFederateLogin -Authority $authority -ClientId $id -ClientSecret $secret -RedirectPort 9443
+        Listens on http://127.0.0.1:9443/callback, the port assigned to the application.
+
+    .EXAMPLE
+        $login = Invoke-PingFederateLogin -Authority $authority -ClientId $id -ClientSecret $secret `
+            -RedirectUri 'http://localhost:47900/callback' -RedirectPort 9443 -PortOverridesUri
+        Keeps the registered host and path but replaces the port with 9443.
+
     .OUTPUTS
         PSCustomObject with Bearer (SecureString), RefreshToken (SecureString or $null), ExpiresIn
         (int, seconds), AuthMode (string), Scope (string, as granted), Claims (hashtable of the
@@ -81,10 +99,14 @@ function Invoke-PingFederateLogin {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.0.0
-        Date        : 16-OCT-26
+        Version     : 2.1.0
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        2.1.0 | 21OCT26 | The default redirect URI is now http://127.0.0.1:8080/callback; it was port 47812.
+                          Added -RedirectPort and -PortOverridesUri, and the URI is now worked out by
+                          Resolve-PingFederateRedirectUri. A client registered with the old default port
+                          needs -RedirectUri or -RedirectPort to keep using it.
         2.0.0 | 16OCT26 | Added -ClientAuth (secret, private_key_jwt, tls_client_auth), -SigningCertificate and
                           -TransportOptions. -ClientSecret is optional (required only for secret). The
                           assertion audience is the token endpoint and the issuer. AuthMode now also reports
@@ -112,7 +134,12 @@ function Invoke-PingFederateLogin {
 
         [string[]]$Scope = @('openid', 'profile', 'ad'),
 
-        [string]$RedirectUri = 'http://127.0.0.1:47812/callback',
+        [string]$RedirectUri,
+
+        [ValidateRange(1, 65535)]
+        [int]$RedirectPort,
+
+        [switch]$PortOverridesUri,
 
         [securestring]$RefreshToken,
 
@@ -124,6 +151,13 @@ function Invoke-PingFederateLogin {
     )
 
     $Authority = $Authority.TrimEnd('/')
+
+    # The redirect URI: the registered one, one built from the application's port, or the 8080 default
+    $redirectParams = @{ RedirectUri = $RedirectUri; PortOverridesUri = $PortOverridesUri }
+    if ($PSBoundParameters.ContainsKey('RedirectPort')) { $redirectParams['RedirectPort'] = $RedirectPort }
+    $RedirectUri = Resolve-PingFederateRedirectUri @redirectParams
+    Write-Verbose "PingFederate redirect URI: [$RedirectUri]."
+
     $scopeText = Resolve-PingFederateScope -Scope $Scope
     $endpointParams = @{ Authority = $Authority }
     if ($TransportOptions) { $endpointParams['TransportOptions'] = $TransportOptions }

@@ -36,10 +36,12 @@ function Read-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.4.2
-        Date        : 08-OCT-26
+        Version     : 1.7.0
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        1.7.0 | 21OCT26 | Added OidcRedirectPort (an integer) to the parsed field whitelist so it survives the
+                          read round-trip. The header version now matches the change log.
         1.6.0 | 16OCT26 | Added OidcClientId, OidcClientAuth, Transport, CaBundle and the nested
                           ClientCertificate (rebuilt as a ServiceApi.ClientCertificate with no password)
                           to the parsed field whitelist.
@@ -92,6 +94,7 @@ function Read-ServiceConfig {
                 if ($src.PSObject.Properties['OidcAuthority']) { $envEntry['OidcAuthority'] = $src.OidcAuthority }
                 if ($src.PSObject.Properties['OidcScope'])     { $envEntry['OidcScope']     = $src.OidcScope }
                 if ($src.PSObject.Properties['OidcRedirectUri']) { $envEntry['OidcRedirectUri'] = $src.OidcRedirectUri }
+                if ($src.PSObject.Properties['OidcRedirectPort']) { $envEntry['OidcRedirectPort'] = [int]$src.OidcRedirectPort }
                 foreach ($plain in 'OidcClientId', 'OidcClientAuth', 'Transport', 'CaBundle') {
                     if ($src.PSObject.Properties[$plain]) { $envEntry[$plain] = $src.$plain }
                 }

@@ -74,7 +74,14 @@ function Register-CustomService {
     .PARAMETER OidcRedirectUri
         Optional. Used by the PingFederate provider. The redirect URI registered on the
         PingFederate client. It must be an http loopback address (127.0.0.1 or localhost) and
-        must match the registration exactly. Defaults to http://127.0.0.1:47812/callback.
+        must match the registration exactly. Defaults to http://127.0.0.1:8080/callback.
+
+    .PARAMETER OidcRedirectPort
+        Optional. Used by the PingFederate provider. The loopback port assigned to the application when
+        its client was registered with PingFederate (1 to 65535). It is saved with the service, so
+        Invoke-APIRequest uses it whenever it has to sign in. With no -OidcRedirectUri it gives
+        http://127.0.0.1:<port>/callback; given with one, the two must agree on the port. Set-ServiceCredential
+        -OidcRedirectPort overrides it for a single sign-in. Defaults to 8080.
 
     .PARAMETER OidcClientId
         Optional. Used by the PingFederate provider. The OAuth client id. Required when
@@ -149,10 +156,14 @@ function Register-CustomService {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 2.9.0
-        Date        : 16-OCT-26
+        Version     : 2.10.0
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        2.10.0 | 21OCT26 | Added -OidcRedirectPort, the loopback port assigned to the application. Saved with the
+                          service (registry entry and services.json) and used by every PingFederate sign-in. A port
+                          that disagrees with the port in -OidcRedirectUri is refused. The default redirect URI is
+                          now http://127.0.0.1:8080/callback (it was port 47812).
         2.9.0 | 16OCT26 | Added -Transport, -ClientCertificate and -CaBundle (per-service transport defaults)
                           and -OidcClientId and -OidcClientAuth (PingFederate certificate client
                           authentication). Persisted via Write-ServiceConfig; a certificate password is never
@@ -241,6 +252,9 @@ function Register-CustomService {
 
         [string]$ProbeEndpoint,
 
+        [ValidateRange(1, 65535)]
+        [int]$OidcRedirectPort,
+
         [switch]$Persistent,
         [switch]$Force
     )
@@ -288,9 +302,9 @@ function Register-CustomService {
         Write-Verbose "SSO tenant [$SSOTenant] registered for [$ServiceName-$Environment]."
     }
 
-    if ($OidcAuthority -or $OidcScope -or $OidcRedirectUri -or $OidcClientId -or $OidcClientAuth) {
+    if ($OidcAuthority -or $OidcScope -or $OidcRedirectUri -or $OidcRedirectPort -or $OidcClientId -or $OidcClientAuth) {
         if ($SSOProvider -ne 'PingFederate') {
-            Write-Warning "-OidcAuthority, -OidcScope, -OidcRedirectUri, -OidcClientId and -OidcClientAuth are only used by the PingFederate SSO provider and will be stored but ignored for provider [$SSOProvider]."
+            Write-Warning "-OidcAuthority, -OidcScope, -OidcRedirectUri, -OidcRedirectPort, -OidcClientId and -OidcClientAuth are only used by the PingFederate SSO provider and will be stored but ignored for provider [$SSOProvider]."
         }
         if ($OidcAuthority) {
             if ($OidcAuthority -notmatch '^https?://') { throw "OidcAuthority must start with http:// or https://" }
@@ -298,6 +312,11 @@ function Register-CustomService {
         }
         if ($OidcScope)       { $entry['OidcScope']       = (($OidcScope -split '[\s,]+') | Where-Object { $_ }) -join ' ' }
         if ($OidcRedirectUri) { $entry['OidcRedirectUri'] = $OidcRedirectUri }
+        if ($PSBoundParameters.ContainsKey('OidcRedirectPort')) {
+            # Refuse a port that disagrees with the one in the URI now, not at the first sign-in
+            $null = Resolve-PingFederateRedirectUri -RedirectUri $OidcRedirectUri -RedirectPort $OidcRedirectPort
+            $entry['OidcRedirectPort'] = $OidcRedirectPort
+        }
         if ($OidcClientId)    { $entry['OidcClientId']    = $OidcClientId }
         if ($OidcClientAuth)  { $entry['OidcClientAuth']  = $OidcClientAuth }
         Write-Verbose "OIDC settings registered for [$ServiceName-$Environment]."
@@ -348,6 +367,7 @@ function Register-CustomService {
         if ($entry.ContainsKey('OidcAuthority'))   { $writeParams['OidcAuthority']   = $entry['OidcAuthority'] }
         if ($entry.ContainsKey('OidcScope'))       { $writeParams['OidcScope']       = $entry['OidcScope'] }
         if ($entry.ContainsKey('OidcRedirectUri')) { $writeParams['OidcRedirectUri'] = $entry['OidcRedirectUri'] }
+        if ($entry.ContainsKey('OidcRedirectPort')) { $writeParams['OidcRedirectPort'] = $entry['OidcRedirectPort'] }
         if ($entry.ContainsKey('OidcClientId'))    { $writeParams['OidcClientId']    = $entry['OidcClientId'] }
         if ($entry.ContainsKey('OidcClientAuth'))  { $writeParams['OidcClientAuth']  = $entry['OidcClientAuth'] }
         if ($entry.ContainsKey('Transport'))        { $writeParams['Transport']        = $entry['Transport'] }

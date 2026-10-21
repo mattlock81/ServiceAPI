@@ -54,10 +54,12 @@ function Write-ServiceConfig {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.7.0
-        Date        : 16-OCT-26
+        Version     : 1.8.0
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        1.8.0 | 21OCT26 | Added optional -OidcRedirectPort, persisted to the services.json entry when
+                          supplied. The loopback port assigned to the application (PingFederate provider).
         1.7.0 | 16OCT26 | Added optional -OidcClientId, -OidcClientAuth, -Transport, -CaBundle and
                           -ClientCertificate, persisted when supplied. The client certificate is stored as
                           its location (Source, Path, KeyPath, Thumbprint, Subject, Store); a password is
@@ -99,7 +101,10 @@ function Write-ServiceConfig {
         [string]$OidcClientAuth,
         [string]$Transport,
         [string]$CaBundle,
-        [object]$ClientCertificate
+        [object]$ClientCertificate,
+
+        [ValidateRange(0, 65535)]
+        [int]$OidcRedirectPort
     )
 
     $configDir  = $script:ServiceApiConfigPath
@@ -142,6 +147,9 @@ function Write-ServiceConfig {
     }
     if (-not [string]::IsNullOrWhiteSpace($OidcRedirectUri)) {
         $entry['OidcRedirectUri'] = $OidcRedirectUri
+    }
+    if ($OidcRedirectPort -gt 0) {
+        $entry['OidcRedirectPort'] = $OidcRedirectPort
     }
     if (-not [string]::IsNullOrWhiteSpace($OidcClientId)) {
         $entry['OidcClientId'] = $OidcClientId

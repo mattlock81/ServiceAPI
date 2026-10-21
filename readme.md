@@ -197,7 +197,7 @@ Set-ServiceCredential -Service ping -AuthType Basic -Label oidcclient -Vault aut
 Invoke-APIRequest -Service ping -Endpoint 'idp/userinfo.openid' -AuthType SSO
 ```
 
-Register the redirect URI on the PingFederate client exactly as given to `-OidcRedirectUri` (default `http://127.0.0.1:47812/callback`). It must be an `http` loopback address; do not run another listener on that port at the same time. `localhost` also works, but then the browser must resolve it to `127.0.0.1`.
+Register the redirect URI on the PingFederate client exactly as given to `-OidcRedirectUri`, or built from `-OidcRedirectPort`, the port assigned to the application (default `http://127.0.0.1:8080/callback`; `Set-ServiceCredential -OidcRedirectPort <port>` overrides the port for one sign-in). It must be an `http` loopback address; do not run another listener on that port at the same time. `localhost` also works, but then the browser must resolve it to `127.0.0.1`.
 
 **Scopes.** `openid` is always sent. The default is `openid profile ad`. Known scopes and the claims they release:
 

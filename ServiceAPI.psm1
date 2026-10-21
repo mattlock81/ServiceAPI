@@ -219,7 +219,7 @@ foreach ($serviceName in $persistedServices.Keys) {
             $regParams['ProbeEndpoint'] = $entry.ProbeEndpoint
         }
 
-        foreach ($oidcField in 'OidcAuthority', 'OidcScope', 'OidcRedirectUri', 'OidcClientId', 'OidcClientAuth', 'Transport', 'CaBundle') {
+        foreach ($oidcField in 'OidcAuthority', 'OidcScope', 'OidcRedirectUri', 'OidcRedirectPort', 'OidcClientId', 'OidcClientAuth', 'Transport', 'CaBundle') {
             if ($entry.ContainsKey($oidcField) -and -not [string]::IsNullOrWhiteSpace($entry[$oidcField])) {
                 $regParams[$oidcField] = $entry[$oidcField]
             }

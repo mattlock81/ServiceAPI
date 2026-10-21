@@ -19,7 +19,7 @@ function Wait-PingFederateCallback {
 
     .PARAMETER RedirectUri
         The redirect URI registered on the PingFederate client, for example
-        http://127.0.0.1:47812/callback.
+        http://127.0.0.1:8080/callback.
 
     .PARAMETER State
         The state value sent in the authorization request.
@@ -36,7 +36,7 @@ function Wait-PingFederateCallback {
         Optional script block run after the listener starts.
 
     .EXAMPLE
-        $code = Wait-PingFederateCallback -RedirectUri 'http://127.0.0.1:47812/callback' -State $state
+        $code = Wait-PingFederateCallback -RedirectUri 'http://127.0.0.1:8080/callback' -State $state
         Waits up to 300 seconds for the redirect and returns the authorization code.
 
     .EXAMPLE
@@ -52,10 +52,12 @@ function Wait-PingFederateCallback {
 
     .NOTES
         Author      : Matthew Sillett
-        Version     : 1.0.0
-        Date        : 15-OCT-26
+        Version     : 1.0.1
+        Date        : 21-OCT-26
 
         CHANGE LOG
+        1.0.1 | 21OCT26 | The examples and the loopback error message now show port 8080, the new default
+                          redirect port. No code change.
         1.0.0 | 15OCT26 | Initial version. PingFederate provider: loopback redirect listener.
     #>
 
@@ -78,7 +80,7 @@ function Wait-PingFederateCallback {
     $uri = $null
     if (-not [uri]::TryCreate($RedirectUri, [UriKind]::Absolute, [ref]$uri) -or
         $uri.Scheme -ne 'http' -or $uri.Host -notin @('127.0.0.1', 'localhost')) {
-        throw "The PingFederate redirect URI must be an http loopback address (127.0.0.1 or localhost), for example http://127.0.0.1:47812/callback. Got [$RedirectUri]."
+        throw "The PingFederate redirect URI must be an http loopback address (127.0.0.1 or localhost), for example http://127.0.0.1:8080/callback. Got [$RedirectUri]."
     }
 
     $listener = [Net.HttpListener]::new()
