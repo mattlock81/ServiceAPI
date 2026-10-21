@@ -12,7 +12,7 @@
 RootModule = 'ServiceAPI.psm1'
 
 # Version number of this module.
-ModuleVersion = '3.1.0'
+ModuleVersion = '3.1.1'
 
 # Supported PSEditions: Windows PowerShell 5.1 (Desktop) and PowerShell 7 (Core, Windows and Linux)
 CompatiblePSEditions = 'Desktop', 'Core'
@@ -107,7 +107,13 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '3.1.0 | 21OCT26 | Client certificates (mutual TLS), an opt-in curl/OpenSSL transport and the PingFederate
+        ReleaseNotes = '3.1.1 | 21OCT26 | The PingFederate redirect port is saved per service: new -OidcRedirectPort on
+                  Register-CustomService (kept in services.json) and Set-ServiceCredential (one sign-in).
+                  Invoke-PingFederateProbe takes it too and shows the redirect URI. A port that disagrees
+                  with the port in -OidcRedirectUri is refused. BREAKING: the default redirect URI is now
+                  http://127.0.0.1:8080/callback (it was port 47812); a client registered on the old
+                  default needs -OidcRedirectPort 47812 or its URI.
+3.1.0 | 21OCT26 | Client certificates (mutual TLS), an opt-in curl/OpenSSL transport and the PingFederate
                   SSO provider. New public function New-ServiceClientCertificate and AuthType Certificate.
                   New -Transport, -ClientCertificate and -CaBundle parameters on Invoke-APIRequest and
                   Register-CustomService. -Transport Curl sends through a curl built with OpenSSL, so hosts

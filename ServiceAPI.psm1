@@ -3,9 +3,9 @@
 # ==============================
 # ServiceAPI PowerShell Module
 # ==============================
-# Version: 3.0.1
+# Version: 3.1.1
 # Author: Matthew Sillett
-# Date: 2026-10-08
+# Date: 2026-10-21
 
 # ==============================
 # Phase 0: Dependency Import

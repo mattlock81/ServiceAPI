@@ -1,7 +1,7 @@
 # ServiceAPI — Rehydration
 
 **Module**: ServiceAPI
-**Version at time of writing**: 3.0.1, plus unreleased work (vault selection follow-ups, `AriaApiToken`, `PingFederate`) (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
+**Version at time of writing**: 3.1.1 (Linux port. The module parses and imports on PowerShell 7.6 on Linux (Ubuntu) with a smoke test of the data paths, permissions and SecureString conversion. Not yet run on a RHEL-family host, and not re-tested on Windows since the port. 2.10.4 was verified by import on PowerShell 7 and Windows PowerShell 5.1; nothing has been run against a real Aria tenant from this repository)
 **Last updated**: 16-OCT-26
 **Author**: Matthew Sillett
 
@@ -226,6 +226,7 @@ Report the probe output and the answers to steps 6 to 8. A failure at the token 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.16.0 | 21-OCT-26 | Version statement brought to module v3.1.1 (3.1.0 released the certificate, curl and PingFederate work; 3.1.1 adds the redirect port, D36). Other "unreleased" wording in this file is not yet revised. |
 | 1.15.0 | 21-OCT-26 | PingFederate redirect port: `-OidcRedirectPort` on `Register-CustomService` (saved) and `Set-ServiceCredential` (one sign-in), `Invoke-PingFederateProbe` passes it on and shows the redirect URI, default changed from 47812 to 8080 (D36). |
 | 1.9.0 | 10-OCT-26 | Brought current to module v3.0.1: vault selection with -Vault and a saved default vault, certificate rejection reasons, Linux test suites and the AriaApiToken SSO provider for unattended Aria access. |
 | 1.14.0 | 16-OCT-26 | Client certificates, AuthType Certificate, the curl/OpenSSL transport and PingFederate certificate client authentication recorded (D31 to D35, open items 17 to 20, current state, planned scope, three gotchas). |
